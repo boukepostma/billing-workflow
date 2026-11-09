@@ -39,4 +39,6 @@ def coerce(value: Any, model_cls: type[T]) -> T:
 
 
 def coerce_list(value: Any, model_cls: type[T]) -> list[T]:
+    if isinstance(value, str):
+        value = json.loads(value)
     return [coerce(item, model_cls) for item in (value or [])]
