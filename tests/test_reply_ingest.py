@@ -93,8 +93,8 @@ def test_coerce_unwraps_payload_with_context():
     from worker.workflows.activity_calls import coerce
     from worker.workflows.config_models import BillingConfig
 
-    payload = PayloadWithContext.model_validate(
-        {"context": {}, "payload": '{"sprint": {"anchor_tuesday": "2026-09-29"}}'}
+    payload = PayloadWithContext.model_construct(
+        context=None, payload='{"sprint": {"anchor_tuesday": "2026-09-29"}}'
     )
     cfg = coerce(payload, BillingConfig)
     assert str(cfg.sprint.anchor_tuesday) == "2026-09-29"
