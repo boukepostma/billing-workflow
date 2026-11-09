@@ -108,7 +108,7 @@ ingest:
   # Replies reach the running billing-sprint execution via the mail-reply-ingest
   # workflow, which polls the Outlook mailbox through the Microsoft Graph API
   # using an app registration (client credentials). Proton auto-forwards to
-  # this mailbox. The client secret is a workspace secret (env var below).
+  # this mailbox. The refresh token is a workspace secret (env var below).
   transport: "graph"
   graph:
     auth_mode: "refresh_token"         # public-client app registration + stored refresh token
