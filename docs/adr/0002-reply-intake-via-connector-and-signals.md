@@ -18,4 +18,4 @@ Steps 2 and 5 require email replies (owner hours confirmation, customer @tcs.com
 - Custom webhook provider (triggers 403 on the current plan).
 
 ## Consequences
-- Setup requires: Proton auto-forward to the Outlook mailbox; Azure app registration (client ID `3e7b867b-bcf7-45a9-bf85-0e1a7cb8c1e1`) with application permissions (Mail.Read; Mail.ReadWrite recommended so processed mails can be moved/marked) and admin consent; tenant ID + mailbox UPN in config; workspace secret `MISTRAL_MS_GRAPH_REFRESH_TOKEN` bound to the deployment.
+- Setup requires: Proton auto-forward to the Outlook mailbox; Azure app registration (client ID `3e7b867b-bcf7-45a9-bf85-0e1a7cb8c1e1`) with application permissions (Mail.Read; Mail.ReadWrite recommended so processed mails can be moved/marked) and admin consent; tenant ID `39fa90e4-4d1f-43f3-a738-cc91f45ae7f0` + mailbox `bouke_postma@hotmail.com` in config; workspace secret `MISTRAL_MS_GRAPH_REFRESH_TOKEN` bound to the deployment.

@@ -112,10 +112,10 @@ ingest:
   transport: "graph"
   graph:
     auth_mode: "refresh_token"         # public-client app registration + stored refresh token
-    tenant_id: "common"                # works for delegated refresh tokens
+    tenant_id: "39fa90e4-4d1f-43f3-a738-cc91f45ae7f0"  # Azure AD tenant of the app registration
     client_id: "3e7b867b-bcf7-45a9-bf85-0e1a7cb8c1e1"
     refresh_token_env: "MISTRAL_MS_GRAPH_REFRESH_TOKEN"  # workspace secret mistral_ms_graph_refresh_token
-    mailbox: "me"                      # delegated token: /me; else set the mailbox UPN
+    mailbox: "bouke_postma@hotmail.com"  # UPN of the polled mailbox (for a personal account the UPN is the email address; "me" also works with a delegated token)
   search_folder: "inbox"
   processed_folder: "archive"          # processed replies are moved here (needs Mail.ReadWrite)
   poll_query: "SP-"
