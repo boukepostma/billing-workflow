@@ -106,11 +106,17 @@ timeouts:
 
 ingest:
   # Replies reach the running billing-sprint execution via the mail-reply-ingest
-  # workflow, which polls the Outlook connector (Proton auto-forwards to Outlook)
-  # and signals the execution by the sprint ref code in the subject.
-  transport: "outlook"               # connector name is hardcoded in worker/workflows/connector_slots.py
+  # workflow, which polls the Outlook mailbox through the Microsoft Graph API
+  # using an app registration (client credentials). Proton auto-forwards to
+  # this mailbox. The client secret is a workspace secret (env var below).
+  transport: "graph"
+  graph:
+    tenant_id: "CHANGE_ME"             # Azure AD tenant ID
+    client_id: "3e7b867b-bcf7-45a9-bf85-0e1a7cb8c1e1"
+    client_secret_env: "MSGRAPH_CLIENT_SECRET"   # workspace secret with the app client secret
+    mailbox: "CHANGE_ME"               # UPN of the Outlook mailbox to poll
   search_folder: "inbox"
-  processed_folder: "archive"        # processed replies are moved here
+  processed_folder: "archive"          # processed replies are moved here (needs Mail.ReadWrite)
   poll_query: "SP-"
   poll_limit: 50
   lookback_days: 30

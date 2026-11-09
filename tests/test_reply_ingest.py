@@ -5,7 +5,7 @@ from worker.activities.reply_ingest import (
     extract_ref,
     is_confirm_text,
     parse_entries,
-    reply_from_outlook,
+    reply_from_graph,
 )
 from worker.workflows.config_models import BillingConfig
 
@@ -42,15 +42,14 @@ def test_is_confirm_text():
     assert not is_confirm_text("random text")
 
 
-def test_reply_from_outlook_owner():
-    item = {"metadata": {"message_id": "AAA"}, "title": "Re: Hours registration proposal [SP-2026-09-29]"}
-    full = {
-        "from": "Bouke Postma <bouke@guero.nl>",
+def test_reply_from_graph_owner():
+    item = {
+        "id": "AAA",
         "subject": "Re: Hours registration proposal [SP-2026-09-29]",
+        "from": {"emailAddress": {"address": "bouke@guero.nl", "name": "Bouke Postma"}},
         "receivedDateTime": "2026-10-20T09:30:00+02:00",
-        "body": "confirm",
     }
-    reply = reply_from_outlook(item, full, CFG.ingest.ref_pattern)
+    reply = reply_from_graph(item, "confirm", CFG.ingest.ref_pattern)
     assert reply.sender == "bouke@guero.nl"
     assert reply.message_id == "AAA"
     assert "SP-2026-09-29" in reply.subject
@@ -59,15 +58,14 @@ def test_reply_from_outlook_owner():
     assert is_confirm_text(reply.body)
 
 
-def test_reply_from_outlook_customer():
-    item = {"metadata": {"message_id": "BBB"}, "title": "Re: Timesheet [SP-2026-09-29]"}
-    full = {
-        "from": "abhirup.ghosh1@tcs.com",
+def test_reply_from_graph_customer():
+    item = {
+        "id": "BBB",
         "subject": "Re: Timesheet [SP-2026-09-29]",
+        "from": {"emailAddress": {"address": "abhirup.ghosh1@tcs.com"}},
         "receivedDateTime": "2026-10-21T12:00:00+02:00",
-        "body": "Confirmed, looks good.",
     }
-    reply = reply_from_outlook(item, full, CFG.ingest.ref_pattern)
+    reply = reply_from_graph(item, "Confirmed, looks good.", CFG.ingest.ref_pattern)
     assert classify_sender(reply.sender, CFG) == "customer"
     assert is_confirm_text(reply.body)
 

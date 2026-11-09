@@ -6,13 +6,18 @@ from email.utils import parseaddr, parsedate_to_datetime
 
 import httpx
 
+import html as html_lib
+import os
+import re
+from datetime import date, datetime, timedelta, timezone
+from email.utils import parseaddr, parsedate_to_datetime
+
+import httpx
+
 import mistralai.workflows as workflows
-from mistralai.workflows import Depends
-from mistralai.workflows.plugins.mistralai.connectors import ToolCallClient
 
 from worker.workflows import sprint_calendar as cal
 from worker.workflows.config_models import BillingConfig
-from worker.workflows.connector_slots import outlook_connector
 from worker.workflows.models import (
     ConfirmHours,
     CustomerConfirmation,
@@ -104,51 +109,109 @@ def reply_from_outlook(item: dict, full: dict, ref_pattern: str) -> ReplyEmail:
     )
 
 
+def _graph_token_url(cfg: BillingConfig) -> str:
+    return f"{cfg.ingest.graph.login_base}/{cfg.ingest.graph.tenant_id}/oauth2/v2.0/token"
+
+
+async def _graph_token(cfg: BillingConfig) -> str:
+    secret = os.environ[cfg.ingest.graph.client_secret_env]
+    async with httpx.AsyncClient(timeout=timedelta(seconds=30)) as client:
+        response = await client.post(
+            _graph_token_url(cfg),
+            data={
+                "grant_type": "client_credentials",
+                "client_id": cfg.ingest.graph.client_id,
+                "client_secret": secret,
+                "scope": cfg.ingest.graph.scope,
+            },
+        )
+        response.raise_for_status()
+        return response.json()["access_token"]
+
+
+def _graph_client(cfg: BillingConfig, token: str) -> httpx.AsyncClient:
+    return httpx.AsyncClient(
+        base_url=cfg.ingest.graph.graph_base,
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=timedelta(seconds=30),
+    )
+
+
+def _strip_html(content: str) -> str:
+    text = re.sub(r"<[^>]+>", "\n", content or "")
+    return html_lib.unescape(text)
+
+
+def reply_from_graph(item: dict, body: str, ref_pattern: str) -> ReplyEmail:
+    sender_info = (item.get("from") or {}).get("emailAddress") or {}
+    sender = sender_info.get("address") or ""
+    subject = item.get("subject") or ""
+    received = _parse_dt(item.get("receivedDateTime") or "")
+    if extract_ref(subject, ref_pattern) is None and extract_ref(body, ref_pattern):
+        subject = f"{subject} {extract_ref(body, ref_pattern)}"
+    return ReplyEmail(
+        message_id=item.get("id") or "",
+        mailbox_seq=item.get("id") or "",
+        sender=sender,
+        subject=subject,
+        date=received,
+        body=body,
+    )
+
+
 @workflows.activity(
     name="poll-replies",
     start_to_close_timeout=timedelta(minutes=2),
     retry_policy_max_attempts=3,
     retry_policy_backoff_coefficient=2.0,
 )
-async def poll_replies(
-    cfg: BillingConfig,
-    lookback_days: int,
-    outlook: ToolCallClient = Depends(outlook_connector),
-) -> str:
-    after = (datetime.now(timezone.utc) - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
-    result = await outlook.call_tool(
-        "search_outlook",
-        {
-            "query": cfg.ingest.poll_query,
-            "is_read": False,
-            "folder_id": cfg.ingest.search_folder,
-            "after": after,
-            "limit": cfg.ingest.poll_limit,
-        },
-    )
-    items = result.get("results", []) if isinstance(result, dict) else result
-    replies: list[ReplyEmail] = []
-    for item in items or []:
-        message_id = _pick(item.get("metadata", {}), "message_id")
-        if not message_id:
-            continue
-        full = await outlook.call_tool("open_outlook_email", {"message_id": message_id})
-        full_dict = full if isinstance(full, dict) else {"body": str(full)}
-        replies.append(reply_from_outlook(item, full_dict, cfg.ingest.ref_pattern))
+async def poll_replies(cfg: BillingConfig, lookback_days: int) -> str:
+    token = await _graph_token(cfg)
+    since = (datetime.now(timezone.utc) - timedelta(days=lookback_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    async with _graph_client(cfg, token) as client:
+        response = await client.get(
+            f"/users/{cfg.ingest.graph.mailbox}/mailFolders/{cfg.ingest.search_folder}/messages",
+            params={
+                "$filter": f"isRead eq false and receivedDateTime ge {since}",
+                "$top": cfg.ingest.poll_limit,
+                "$select": "id,subject,from,receivedDateTime,bodyPreview",
+                "$orderby": "receivedDateTime desc",
+            },
+        )
+        response.raise_for_status()
+        items = response.json().get("value", [])
+        replies: list[ReplyEmail] = []
+        for item in items:
+            body = item.get("bodyPreview") or ""
+            if extract_ref(item.get("subject") or "", cfg.ingest.ref_pattern) is None and extract_ref(body, cfg.ingest.ref_pattern) is None:
+                continue
+            full = await client.get(f"/users/{cfg.ingest.graph.mailbox}/messages/{item['id']}", params={"$select": "id,body"})
+            body_content = ""
+            if full.status_code == 200:
+                body_content = _strip_html((full.json().get("body") or {}).get("content") or "")
+            replies.append(reply_from_graph(item, body_content or body, cfg.ingest.ref_pattern))
     return json.dumps([r.model_dump(mode="json") for r in replies])
 
 
 @workflows.activity(name="mark-replies-processed", start_to_close_timeout=timedelta(minutes=1))
-async def mark_replies_processed(
-    cfg: BillingConfig,
-    message_ids: list[str],
-    outlook: ToolCallClient = Depends(outlook_connector),
-) -> None:
-    for message_id in message_ids:
-        await outlook.call_tool(
-            "move_email",
-            {"message_id": message_id, "destination_folder_id": cfg.ingest.processed_folder},
-        )
+async def mark_replies_processed(cfg: BillingConfig, message_ids: list[str]) -> None:
+    if not message_ids:
+        return
+    token = await _graph_token(cfg)
+    async with _graph_client(cfg, token) as client:
+        for message_id in message_ids:
+            try:
+                response = await client.post(
+                    f"/users/{cfg.ingest.graph.mailbox}/messages/{message_id}/move",
+                    json={"destinationFolderId": cfg.ingest.processed_folder},
+                )
+                if response.status_code >= 300:
+                    await client.patch(
+                        f"/users/{cfg.ingest.graph.mailbox}/messages/{message_id}",
+                        json={"isRead": True},
+                    )
+            except httpx.HTTPError:
+                continue
 
 
 def _api_client(cfg: BillingConfig) -> httpx.AsyncClient:

@@ -5,7 +5,7 @@ End-to-end sprint billing automation on [Mistral AI Workflows](https://docs.mist
 ## Process (one run per sprint, started on the last day of the sprint = Monday)
 
 1. **Propose hours by mail** — 8 h for every Monday/Tuesday/Wednesday of the sprint, mailed to the owner (Proton SMTP). Subject carries a ref code `SP-YYYY-MM-DD`.
-2. **Owner confirms or suggests changes by replying** to the mail. The `mail-reply-ingest` workflow (scheduled every 15 min) polls the Outlook inbox (Proton auto-forwards there), matches the ref code, and signals the running execution (`confirm_hours`). "confirm" accepts the proposal; lines like `2026-10-06: 4` change individual days.
+2. **Owner confirms or suggests changes by replying** to the mail. The `mail-reply-ingest` workflow (scheduled every 15 min) polls the Outlook mailbox via Microsoft Graph (app registration, client credentials; Proton auto-forwards there), matches the ref code, and signals the running execution (`confirm_hours`). "confirm" accepts the proposal; lines like `2026-10-06: 4` change individual days.
 3. **Register hours in e-Boekhouden** via API — one registration per worked day: relation `GEEKSOFT`, medewerker `Bouke Postma`, project `Project for Tata Consultancy Services Netherlands`, 0 km.
 4. **Send the timesheet by mail** (Proton SMTP) to the configured customer to/cc for confirmation.
 5. **Customer confirms by mail** — any `@tcs.com` sender may confirm; the ingest workflow signals `customer_confirmation` with the email's date. If unconfirmed: reminder EOD Wednesday and EOD Friday (16:00 UTC). After 14 days the owner gets an escalation mail; the run keeps waiting (it does not fail on missing human input).
@@ -33,7 +33,7 @@ apps/worker/src/worker/
     settings.py                loads config/billing.yaml (+ runtime overrides)
     smtp_mail.py               Proton SMTP sender
     eboekhouden.py             e-Boekhouden REST API client (hours, invoice, send, pdf, outstanding)
-    reply_ingest.py            outlook poll + dispatch signal via Mistral API
+    reply_ingest.py            MS Graph poll + dispatch signal via Mistral API
 config/billing.yaml            all configurable values (see below)
 deploy/docker/Dockerfile.worker
 tests/                         pytest + temporalio time-skipping tests

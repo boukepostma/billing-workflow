@@ -98,8 +98,19 @@ class TimeoutsCfg(BaseModel):
     max_payment_reminders: int = 30
 
 
+class GraphCfg(BaseModel):
+    tenant_id: str = ""                  # Azure AD tenant ID (token endpoint)
+    client_id: str = ""                  # app registration client ID (not secret)
+    client_secret_env: str = "MSGRAPH_CLIENT_SECRET"  # workspace secret name
+    mailbox: str = ""                    # UPN of the Outlook mailbox to poll
+    graph_base: str = "https://graph.microsoft.com/v1.0"
+    login_base: str = "https://login.microsoftonline.com"
+    scope: str = "https://graph.microsoft.com/.default"
+
+
 class IngestCfg(BaseModel):
-    transport: str = "outlook"
+    transport: str = "graph"             # direct MS Graph API (client credentials)
+    graph: GraphCfg = Field(default_factory=GraphCfg)
     search_folder: str = "inbox"
     processed_folder: str = "archive"
     poll_query: str = "SP-"

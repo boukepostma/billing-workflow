@@ -1,11 +1,9 @@
 from datetime import timedelta
 
 import mistralai.workflows as workflows
-from mistralai.workflows.plugins.mistralai.connectors import uses_connectors
 
 from worker.workflows.activity_calls import call_activity, coerce, coerce_list
 from worker.workflows.config_models import BillingConfig
-from worker.workflows.connector_slots import outlook_connector
 from worker.workflows.models import IngestInput, IngestOutcome, IngestResult, ReplyEmail
 
 
@@ -20,7 +18,6 @@ from worker.workflows.models import IngestInput, IngestOutcome, IngestResult, Re
     ),
     execution_timeout=timedelta(minutes=30),
 )
-@uses_connectors(outlook_connector)
 class MailReplyIngestWorkflow:
     @workflows.workflow.entrypoint
     async def run(self, input: IngestInput) -> IngestResult:
