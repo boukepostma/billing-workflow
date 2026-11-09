@@ -153,7 +153,8 @@ class BillingSprintWorkflow:
 
     @workflows.workflow.entrypoint
     async def run(self, input: SprintInput) -> SprintResult:
-        cfg = coerce(await call_activity("load-config", input.overrides), BillingConfig)
+        raw_cfg = await call_activity("load-config", input.overrides)
+        cfg = coerce(raw_cfg, BillingConfig)
         now = workflow.now()
         run_date = input.run_date or now.date()
         window = cal.resolve_sprint_window(cfg.sprint, run_date, input.sprint_start)
@@ -161,7 +162,11 @@ class BillingSprintWorkflow:
             return SprintResult(
                 status="skipped_not_sprint_end",
                 dry_run=input.dry_run,
-                detail=f"{run_date.isoformat()} is a Monday but not a sprint end (anchor={cfg.sprint.anchor_tuesday})",
+                detail=(
+                    f"{run_date.isoformat()} is a Monday but not a sprint end "
+                    f"(anchor={cfg.sprint.anchor_tuesday}, raw_type={type(raw_cfg).__name__}, "
+                    f"sprint={cfg.sprint.model_dump_json()})"
+                ),
             )
         sprint_start, sprint_end = window
         ref = cal.ref_for(sprint_start)
