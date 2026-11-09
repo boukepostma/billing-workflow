@@ -22,19 +22,31 @@ async def call_activity(name: str, *args: Any) -> Any:
 
 
 def coerce(value: Any, model_cls: type[T]) -> T:
-    if isinstance(value, str):
-        value = json.loads(value)
-    if isinstance(value, model_cls):
-        return value
-    if isinstance(value, BaseModel):
-        return model_cls.model_validate(value.model_dump(mode="json"))
-    if isinstance(value, (bytes, bytearray)):
-        value = json.loads(value.decode("utf-8"))
-    if not isinstance(value, dict):
+    for _ in range(10):
+        if isinstance(value, model_cls):
+            return value
+        if isinstance(value, str):
+            value = json.loads(value)
+            continue
+        if isinstance(value, (bytes, bytearray)):
+            value = json.loads(value.decode("utf-8"))
+            continue
+        if isinstance(value, dict):
+            return model_cls.model_validate(value)
+        if isinstance(value, BaseModel) and hasattr(value, "payload"):
+            value = value.payload
+            continue
+        if isinstance(value, BaseModel):
+            return model_cls.model_validate(value.model_dump(mode="json"))
+        unwrapped = False
         for attr in ("value", "payload", "data"):
             inner = getattr(value, attr, None)
-            if isinstance(inner, (dict, BaseModel, bytes, bytearray)):
-                return coerce(inner, model_cls)
+            if inner is not None and not callable(inner):
+                value = inner
+                unwrapped = True
+                break
+        if not unwrapped:
+            break
     return model_cls.model_validate(value)
 
 

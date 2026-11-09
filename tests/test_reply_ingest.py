@@ -86,3 +86,15 @@ def test_coerce_handles_payload_wrappers():
     assert cfg.eboekhouden.relation_code == "GEEKSOFT"
     outcomes = coerce_list([FakePayload({"message_id": "m1", "outcome": "signalled"})], IngestOutcome)
     assert outcomes[0].outcome == "signalled"
+
+
+def test_coerce_unwraps_payload_with_context():
+    from mistralai.workflows.models.payload import PayloadWithContext
+    from worker.workflows.activity_calls import coerce
+    from worker.workflows.config_models import BillingConfig
+
+    payload = PayloadWithContext.model_validate(
+        {"context": {}, "payload": '{"sprint": {"anchor_tuesday": "2026-09-29"}}'}
+    )
+    cfg = coerce(payload, BillingConfig)
+    assert str(cfg.sprint.anchor_tuesday) == "2026-09-29"
