@@ -99,13 +99,15 @@ class TimeoutsCfg(BaseModel):
 
 
 class GraphCfg(BaseModel):
-    tenant_id: str = ""                  # Azure AD tenant ID (token endpoint)
+    auth_mode: str = "refresh_token"     # "refresh_token" (public client) | "client_secret" (confidential client)
+    tenant_id: str = "common"            # "common" works for delegated refresh tokens
     client_id: str = ""                  # app registration client ID (not secret)
-    client_secret_env: str = "MSGRAPH_CLIENT_SECRET"  # workspace secret name
-    mailbox: str = ""                    # UPN of the Outlook mailbox to poll
+    client_secret_env: str = "MSGRAPH_CLIENT_SECRET"      # used when auth_mode=client_secret
+    refresh_token_env: str = "MISTRAL_MS_GRAPH_REFRESH_TOKEN"  # used when auth_mode=refresh_token
+    mailbox: str = "me"                  # "me" for delegated tokens, else the mailbox UPN
     graph_base: str = "https://graph.microsoft.com/v1.0"
     login_base: str = "https://login.microsoftonline.com"
-    scope: str = "https://graph.microsoft.com/.default"
+    scope: str = "https://graph.microsoft.com/Mail.Read https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/User.Read offline_access"
 
 
 class IngestCfg(BaseModel):

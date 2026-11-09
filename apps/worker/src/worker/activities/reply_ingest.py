@@ -113,18 +113,26 @@ def _graph_token_url(cfg: BillingConfig) -> str:
     return f"{cfg.ingest.graph.login_base}/{cfg.ingest.graph.tenant_id}/oauth2/v2.0/token"
 
 
+def _token_request_data(cfg: BillingConfig) -> dict:
+    graph = cfg.ingest.graph
+    if graph.auth_mode == "client_secret":
+        return {
+            "grant_type": "client_credentials",
+            "client_id": graph.client_id,
+            "client_secret": os.environ[graph.client_secret_env],
+            "scope": graph.scope,
+        }
+    return {
+        "grant_type": "refresh_token",
+        "client_id": graph.client_id,
+        "refresh_token": os.environ[graph.refresh_token_env],
+        "scope": graph.scope,
+    }
+
+
 async def _graph_token(cfg: BillingConfig) -> str:
-    secret = os.environ[cfg.ingest.graph.client_secret_env]
     async with httpx.AsyncClient(timeout=timedelta(seconds=30)) as client:
-        response = await client.post(
-            _graph_token_url(cfg),
-            data={
-                "grant_type": "client_credentials",
-                "client_id": cfg.ingest.graph.client_id,
-                "client_secret": secret,
-                "scope": cfg.ingest.graph.scope,
-            },
-        )
+        response = await client.post(_graph_token_url(cfg), data=_token_request_data(cfg))
         response.raise_for_status()
         return response.json()["access_token"]
 

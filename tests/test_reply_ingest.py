@@ -10,13 +10,13 @@ from worker.activities.reply_ingest import (
 from worker.workflows.config_models import BillingConfig
 
 CFG = BillingConfig(
-    owner={"name": "Bouke Postma", "email": "bouke@guero.nl", "confirm_domains": ["guero.nl"]},
+    owner={"name": "Bouke Postma", "email": "admin@guero.nl", "confirm_domains": ["guero.nl"]},
     customer={"confirm_domains": ["tcs.com"]},
 )
 
 
 def test_classify_sender():
-    assert classify_sender("bouke@guero.nl", CFG) == "owner"
+    assert classify_sender("admin@guero.nl", CFG) == "owner"
     assert classify_sender("abhirup.ghosh1@tcs.com", CFG) == "customer"
     assert classify_sender("evil@other.com", CFG) == "unknown"
 
@@ -46,11 +46,11 @@ def test_reply_from_graph_owner():
     item = {
         "id": "AAA",
         "subject": "Re: Hours registration proposal [SP-2026-09-29]",
-        "from": {"emailAddress": {"address": "bouke@guero.nl", "name": "Bouke Postma"}},
+        "from": {"emailAddress": {"address": "admin@guero.nl", "name": "Bouke Postma"}},
         "receivedDateTime": "2026-10-20T09:30:00+02:00",
     }
     reply = reply_from_graph(item, "confirm", CFG.ingest.ref_pattern)
-    assert reply.sender == "bouke@guero.nl"
+    assert reply.sender == "admin@guero.nl"
     assert reply.message_id == "AAA"
     assert "SP-2026-09-29" in reply.subject
     assert reply.date.year == 2026
@@ -96,3 +96,30 @@ def test_coerce_unwraps_payload_with_context():
     )
     cfg = coerce(payload, BillingConfig)
     assert str(cfg.sprint.anchor_tuesday) == "2026-09-29"
+
+
+def test_graph_token_request_refresh_token(monkeypatch):
+    import os
+
+    from worker.activities.reply_ingest import _token_request_data
+
+    monkeypatch.setenv("MISTRAL_MS_GRAPH_REFRESH_TOKEN", "rt-123")
+    cfg = BillingConfig()
+    cfg.ingest.graph.auth_mode = "refresh_token"
+    cfg.ingest.graph.client_id = "3e7b867b-bcf7-45a9-bf85-0e1a7cb8c1e1"
+    data = _token_request_data(cfg)
+    assert data["grant_type"] == "refresh_token"
+    assert data["refresh_token"] == "rt-123"
+    assert data["client_id"] == "3e7b867b-bcf7-45a9-bf85-0e1a7cb8c1e1"
+    assert "offline_access" in data["scope"]
+
+
+def test_graph_token_request_client_secret(monkeypatch):
+    from worker.activities.reply_ingest import _token_request_data
+
+    monkeypatch.setenv("MSGRAPH_CLIENT_SECRET", "cs-456")
+    cfg = BillingConfig()
+    cfg.ingest.graph.auth_mode = "client_secret"
+    data = _token_request_data(cfg)
+    assert data["grant_type"] == "client_credentials"
+    assert data["client_secret"] == "cs-456"

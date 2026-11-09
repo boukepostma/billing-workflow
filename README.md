@@ -53,7 +53,7 @@ Scheduled runs are unattended, so they can only use **workspace-level** credenti
 
 1. **Workspace secrets bound to the deployment (recommended)** — create secrets at
    [console.mistral.ai/secrets](https://console.mistral.ai/secrets):
-   `SMTP_HOST` (e.g. `smtp.protonmail.ch`), `SMTP_PORT` (`587`), `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` (`bouke@guero.nl`), `EBOEKHOUDEN_API_TOKEN`
+   `SMTP_HOST` (e.g. `smtp.protonmail.ch`), `SMTP_PORT` (`587`), `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` (`admin@guero.nl`), `EBOEKHOUDEN_API_TOKEN`
    (e-Boekhouden: Beheer > Inrichting > Koppelingen > API). Then bind them on the deployment
    (Deployments > your deployment > Settings > environment variables, or the `secrets` parameter
    of the deploy call: `{"env_var_name": "SMTP_PASSWORD", "secret_name": "smtp_password"}`).
