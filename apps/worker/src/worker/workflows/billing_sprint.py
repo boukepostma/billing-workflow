@@ -5,7 +5,7 @@ import mistralai.workflows as workflows
 from mistralai.workflows import workflow
 
 from worker.workflows import sprint_calendar as cal
-from worker.workflows.activity_calls import call_activity
+from worker.workflows.activity_calls import call_activity, coerce, coerce_list
 from worker.workflows.config_models import BillingConfig
 from worker.workflows.models import (
     CancelSignal,
@@ -153,7 +153,7 @@ class BillingSprintWorkflow:
 
     @workflows.workflow.entrypoint
     async def run(self, input: SprintInput) -> SprintResult:
-        cfg = BillingConfig.model_validate(await call_activity("load-config", input.overrides))
+        cfg = coerce(await call_activity("load-config", input.overrides), BillingConfig)
         now = workflow.now()
         run_date = input.run_date or now.date()
         window = cal.resolve_sprint_window(cfg.sprint, run_date, input.sprint_start)
@@ -205,7 +205,7 @@ class BillingSprintWorkflow:
                 for e in entries
             ]
         else:
-            registered = [HoursRegistration.model_validate(r) for r in await call_activity("register-hours", entries, cfg)]
+            registered = coerce_list(await call_activity("register-hours", entries, cfg), HoursRegistration)
         result.registered = registered
 
         self._phase = "awaiting_customer_confirmation"
@@ -259,7 +259,7 @@ class BillingSprintWorkflow:
                 invoice_id="DRY-RUN", invoice_number="DRY-RUN", factuur_datum=invoice_date
             )
         else:
-            invoice = InvoiceResult.model_validate(await call_activity("create-invoice", params, cfg))
+            invoice = coerce(await call_activity("create-invoice", params, cfg), InvoiceResult)
         result.invoice = invoice
 
         self._phase = "sending_invoice"

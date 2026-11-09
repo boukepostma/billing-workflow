@@ -70,3 +70,19 @@ def test_reply_from_outlook_customer():
     reply = reply_from_outlook(item, full, CFG.ingest.ref_pattern)
     assert classify_sender(reply.sender, CFG) == "customer"
     assert is_confirm_text(reply.body)
+
+
+def test_coerce_handles_payload_wrappers():
+    from worker.workflows.activity_calls import coerce, coerce_list
+    from worker.workflows.config_models import BillingConfig
+    from worker.workflows.models import IngestOutcome
+
+    class FakePayload:
+        def __init__(self, value):
+            self.value = value
+
+    cfg = coerce(FakePayload({"owner": {"name": "B", "email": "b@guero.nl"}}), BillingConfig)
+    assert cfg.owner.email == "b@guero.nl"
+    assert cfg.eboekhouden.relation_code == "GEEKSOFT"
+    outcomes = coerce_list([FakePayload({"message_id": "m1", "outcome": "signalled"})], IngestOutcome)
+    assert outcomes[0].outcome == "signalled"
