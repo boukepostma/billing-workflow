@@ -161,7 +161,7 @@ class BillingSprintWorkflow:
             return SprintResult(
                 status="skipped_not_sprint_end",
                 dry_run=input.dry_run,
-                detail=f"{run_date.isoformat()} is a Monday but not a sprint end",
+                detail=f"{run_date.isoformat()} is a Monday but not a sprint end (anchor={cfg.sprint.anchor_tuesday})",
             )
         sprint_start, sprint_end = window
         ref = cal.ref_for(sprint_start)

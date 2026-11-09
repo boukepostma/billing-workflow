@@ -42,4 +42,13 @@ def load_billing_config(path: Path | None = None, overrides: dict[str, Any] | No
 
 @workflows.activity(name="load-config")
 async def load_config(overrides: dict[str, Any] | None = None) -> BillingConfig:
-    return load_billing_config(overrides=overrides)
+    import logging
+
+    cfg = load_billing_config(overrides=overrides)
+    logging.getLogger(__name__).info(
+        "loaded config path=%s anchor=%s overrides=%s",
+        _default_config_path(),
+        cfg.sprint.anchor_tuesday,
+        bool(overrides),
+    )
+    return cfg
