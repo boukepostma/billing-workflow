@@ -43,20 +43,26 @@ async def mock_send_mail(message: MailMessage, cfg: BillingConfig) -> str:
 
 
 @workflows.activity(name="register-hours")
-async def mock_register_hours(entries: list[HoursEntry], cfg: BillingConfig) -> list[HoursRegistration]:
+async def mock_register_hours(entries: list[HoursEntry], cfg: BillingConfig) -> str:
     REGISTRATIONS.extend(entries)
-    return [
-        HoursRegistration(date=e.date, hours=e.hours, registration_id=f"reg-{e.date.isoformat()}")
-        for e in entries
-    ]
+    import json
+
+    return json.dumps(
+        [
+            HoursRegistration(
+                date=e.date, hours=e.hours, registration_id=f"reg-{e.date.isoformat()}"
+            ).model_dump(mode="json")
+            for e in entries
+        ]
+    )
 
 
 @workflows.activity(name="create-invoice")
-async def mock_create_invoice(params: CreateInvoiceParams, cfg: BillingConfig) -> InvoiceResult:
+async def mock_create_invoice(params: CreateInvoiceParams, cfg: BillingConfig) -> str:
     INVOICES.append(params)
     return InvoiceResult(
         invoice_id="inv-1", invoice_number="2026-001", factuur_datum=params.factuur_datum
-    )
+    ).model_dump_json()
 
 
 @workflows.activity(name="send-invoice")

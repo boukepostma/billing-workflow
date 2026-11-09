@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 from datetime import timedelta
 
@@ -41,7 +42,7 @@ def _extract_id(payload: dict) -> str | None:
     retry_policy_max_attempts=3,
     retry_policy_backoff_coefficient=2.0,
 )
-async def register_hours(entries: list[HoursEntry], cfg: BillingConfig) -> list[HoursRegistration]:
+async def register_hours(entries: list[HoursEntry], cfg: BillingConfig) -> str:
     eb = cfg.eboekhouden
     results: list[HoursRegistration] = []
     async with _client(cfg) as client:
@@ -61,7 +62,7 @@ async def register_hours(entries: list[HoursEntry], cfg: BillingConfig) -> list[
             results.append(
                 HoursRegistration(date=entry.date, hours=entry.hours, registration_id=registration_id)
             )
-    return results
+    return json.dumps([r.model_dump(mode="json") for r in results])
 
 
 @workflows.activity(
@@ -70,7 +71,7 @@ async def register_hours(entries: list[HoursEntry], cfg: BillingConfig) -> list[
     retry_policy_max_attempts=3,
     retry_policy_backoff_coefficient=2.0,
 )
-async def create_invoice(params: CreateInvoiceParams, cfg: BillingConfig) -> InvoiceResult:
+async def create_invoice(params: CreateInvoiceParams, cfg: BillingConfig) -> str:
     eb = cfg.eboekhouden
     inv = eb.invoice
     body: dict = {
@@ -103,12 +104,13 @@ async def create_invoice(params: CreateInvoiceParams, cfg: BillingConfig) -> Inv
         data = response.json()
         linked = inv.link_hours_field in body and bool(params.registration_ids)
         number = data.get("factuurnummer") or data.get("invoiceNumber") or data.get("FactuurNummer")
-        return InvoiceResult(
+        result = InvoiceResult(
             invoice_id=_extract_id(data),
             invoice_number=str(number) if number is not None else None,
             factuur_datum=params.factuur_datum,
             linked_hours=linked,
         )
+        return result.model_dump_json()
 
 
 @workflows.activity(

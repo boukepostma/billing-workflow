@@ -1,3 +1,4 @@
+import json
 import os
 import re
 from datetime import date, datetime, timedelta, timezone
@@ -113,7 +114,7 @@ async def poll_replies(
     cfg: BillingConfig,
     lookback_days: int,
     outlook: ToolCallClient = Depends(outlook_connector),
-) -> list[ReplyEmail]:
+) -> str:
     after = (datetime.now(timezone.utc) - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
     result = await outlook.call_tool(
         "search_outlook",
@@ -134,7 +135,7 @@ async def poll_replies(
         full = await outlook.call_tool("open_outlook_email", {"message_id": message_id})
         full_dict = full if isinstance(full, dict) else {"body": str(full)}
         replies.append(reply_from_outlook(item, full_dict, cfg.ingest.ref_pattern))
-    return replies
+    return json.dumps([r.model_dump(mode="json") for r in replies])
 
 
 @workflows.activity(name="mark-replies-processed", start_to_close_timeout=timedelta(minutes=1))
@@ -202,7 +203,7 @@ async def _signal_execution(cfg: BillingConfig, execution_id: str, name: str, pa
     retry_policy_max_attempts=3,
     retry_policy_backoff_coefficient=2.0,
 )
-async def dispatch_reply(reply: ReplyEmail, cfg: BillingConfig, dry_run: bool = False) -> IngestOutcome:
+async def dispatch_reply(reply: ReplyEmail, cfg: BillingConfig, dry_run: bool = False) -> str:
     kind = classify_sender(reply.sender, cfg)
     ref = extract_ref(f"{reply.subject}\n{reply.body}", cfg.ingest.ref_pattern)
     if kind == "unknown":
@@ -239,4 +240,4 @@ async def dispatch_reply(reply: ReplyEmail, cfg: BillingConfig, dry_run: bool = 
         message_id=reply.message_id,
         outcome="signalled_dry_run" if dry_run else "signalled",
         detail=f"{signal_name} -> {execution_id}",
-    )
+    ).model_dump_json()

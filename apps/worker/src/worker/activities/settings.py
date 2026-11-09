@@ -41,7 +41,7 @@ def load_billing_config(path: Path | None = None, overrides: dict[str, Any] | No
 
 
 @workflows.activity(name="load-config")
-async def load_config(overrides: dict[str, Any] | None = None) -> BillingConfig:
+async def load_config(overrides: dict[str, Any] | None = None) -> str:
     import logging
 
     cfg = load_billing_config(overrides=overrides)
@@ -51,4 +51,4 @@ async def load_config(overrides: dict[str, Any] | None = None) -> BillingConfig:
         cfg.sprint.anchor_tuesday,
         bool(overrides),
     )
-    return cfg
+    return cfg.model_dump_json()

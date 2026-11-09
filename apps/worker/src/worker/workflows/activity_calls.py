@@ -22,6 +22,8 @@ async def call_activity(name: str, *args: Any) -> Any:
 
 
 def coerce(value: Any, model_cls: type[T]) -> T:
+    if isinstance(value, str):
+        value = json.loads(value)
     if isinstance(value, model_cls):
         return value
     if isinstance(value, BaseModel):
