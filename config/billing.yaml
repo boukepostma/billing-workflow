@@ -1,0 +1,120 @@
+# Billing workflow configuration (defaults).
+#
+# To change any of these WITHOUT a git push, put the same keys in the
+# `overrides` object of the schedule's input JSON in Mistral Studio
+# (Workflows > Schedules > <schedule> > input). Overrides are deep-merged
+# over this file at runtime. Secrets are NEVER stored here, only the NAMES
+# of environment variables (workspace secrets bound to the managed deployment).
+
+sprint:
+  # Anchor Tuesday that starts sprint 1 of a quarter cycle. Sprint ends land on
+  # Mondays at day offsets 20/41/62/90 (mod 91) from the anchor: three 3-week
+  # sprints followed by one 4-week sprint (the last week of the quarter).
+  anchor_tuesday: "2026-09-29"    # sprint ends: 2026-10-19, 11-09, 11-30, 12-28 (4wk), ...
+  work_days: [0, 1, 2]            # Monday, Tuesday, Wednesday (Mon=0)
+  hours_per_day: 8
+  normal_sprint_weeks: 3
+  last_sprint_weeks: 4            # last sprint of each 13-week quarter
+  quarter_weeks: 13
+
+owner:
+  name: "Bouke Postma"
+  email: "bouke@guero.nl"         # receives hour proposals, reminders, escalations
+  confirm_domains: ["guero.nl"]   # reply senders allowed to confirm hours
+
+customer:
+  confirm_domains: ["tcs.com"]    # any sender on these domains may confirm the timesheet
+
+eboekhouden:
+  base_url: "https://api.e-boekhouden.nl/v1"
+  token_env: "EBOEKHOUDEN_API_TOKEN"   # workspace secret (Beheer > Inrichting > Koppelingen > API)
+  relation_code: "GEEKSOFT"            # debiteur/customer code
+  medewerker: "Bouke Postma"
+  project: "Project for Tata Consultancy Services Netherlands"
+  kilometers: 0                        # km gereden per registration
+  hours_description: "Consultancy hours"
+  endpoints:
+    hours: "/urenregistraties"
+    invoice: "/facturen"
+    outstanding: "/mutation/invoice/outstanding"
+    invoice_pdf: "/facturen/{invoice_id}/pdf"
+    send_invoice: "/facturen/{invoice_id}/send"   # used when send_prefer=eboekhouden; SMTP is the fallback
+  invoice:
+    factuursjabloon: "EN - Simpel met aantallen"
+    emailsjabloon: "02. EN - Eerste Factuur"
+    product_code: "UREN"
+    hourly_rate: 105.0
+    vat_code: "HOOG"
+    vat_label: "Btw hoog 21%"
+    payment_term_days: 45
+    check_after_days: 46               # verify payment 46 days after the invoice was sent
+    link_hours: true                   # try to relate the invoice to the hour registrations
+    link_hours_field: "urenregistratieIds"  # dropped automatically if the API rejects the field
+    lines_mode: "sprint_total"         # "sprint_total" = one line with total hours | "per_day"
+    factuurtekst_template: "Sprint {start} - {end}"
+    line_omschrijving_template: "Sprint {start} - {end}"
+    date_format: "nl-short"            # "nl-short" = "29 sept" | "iso" = "2026-09-29"
+    month_names: [jan, feb, mrt, apr, mei, jun, jul, aug, sept, okt, nov, dec]
+    send_prefer: "eboekhouden"         # try e-Boekhouden mail send first, fall back to SMTP
+
+mail:
+  # SMTP (Proton Mail, e.g. smtp.protonmail.ch:587 STARTTLS). Values come from
+  # workspace secrets bound to the deployment as these env vars.
+  host_env: "SMTP_HOST"
+  port_env: "SMTP_PORT"
+  user_env: "SMTP_USER"
+  password_env: "SMTP_PASSWORD"
+  from_env: "SMTP_FROM"              # e.g. bouke@guero.nl
+  starttls: true
+  proposal:
+    to: []                           # defaults to owner.email
+    cc: []
+    subject: "Hours registration proposal - Sprint {sprint_start} - {sprint_end} [{ref}]"
+  timesheet:
+    to: ["abhirup.ghosh1@tcs.com"]
+    cc: ["pranab.mukherjee@tcs.com", "timesheets@geeksoftconsulting.com", "vandana.c@geeksoft.eu"]
+    subject: "Timesheet for your approval - Sprint {sprint_start} - {sprint_end} [{ref}]"
+  timesheet_reminder:
+    to: []                           # defaults to timesheet.to
+    cc: []
+    subject: "Reminder: timesheet approval - Sprint {sprint_start} - {sprint_end} [{ref}]"
+  invoice:
+    to: ["timesheets@geeksoftconsulting.com"]
+    cc: ["vandana.c@geeksoft.eu"]
+    subject: "Invoice {invoice_number} - Sprint {sprint_start} - {sprint_end} [{ref}]"
+  payment_reminder:
+    to: []                           # defaults to invoice.to
+    cc: []
+    subject: "Payment reminder - invoice {invoice_number} [{ref}]"
+  owner_reminder:
+    to: []
+    cc: []
+    subject: "Reminder: confirm hour registration - Sprint {sprint_start} - {sprint_end} [{ref}]"
+  escalation:
+    to: []
+    cc: []
+    subject: "ESCALATION: billing process needs attention - Sprint {sprint_start} - {sprint_end} [{ref}]"
+
+timeouts:
+  owner_confirm_days: 7              # after this, escalate by mail (run keeps waiting, never fails on input)
+  owner_reminder_hours: 24           # reminder cadence while waiting for the owner
+  customer_confirm_days: 14          # after this, escalate by mail (run keeps waiting)
+  customer_reminder_weekdays: [2, 4]  # EOD reminders on Wednesday and Friday (Mon=0)
+  customer_reminder_hour_utc: 16     # 16:00 UTC = 17:00 CET / 18:00 CEST (end of day)
+  payment_reminder_interval_days: 1   # daily payment reminders while unpaid
+  max_payment_reminders: 30          # then escalate to the owner (keeps reminding)
+
+ingest:
+  # Replies reach the running billing-sprint execution via the mail-reply-ingest
+  # workflow, which polls the Outlook connector (Proton auto-forwards to Outlook)
+  # and signals the execution by the sprint ref code in the subject.
+  transport: "outlook"               # connector name is hardcoded in worker/workflows/connector_slots.py
+  search_folder: "inbox"
+  processed_folder: "archive"        # processed replies are moved here
+  poll_query: "SP-"
+  poll_limit: 50
+  lookback_days: 30
+  ref_pattern: 'SP-\d{4}-\d{2}-\d{2}'
+  mistral_api_base: "https://api.mistral.ai"
+  mistral_api_key_env: "MISTRAL_API_KEY"   # injected into the managed deployment
+  billing_workflow_name: "billing-sprint"
