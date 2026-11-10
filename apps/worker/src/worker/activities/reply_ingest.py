@@ -141,7 +141,7 @@ async def _graph_token(cfg: BillingConfig) -> str:
     logger = logging.getLogger(__name__)
     data = _token_request_data(cfg)
     errors: list[str] = []
-    async with httpx.AsyncClient(timeout=timedelta(seconds=30)) as client:
+    async with httpx.AsyncClient(timeout=30.0) as client:
         for tenant in _token_tenant_candidates(cfg):
             response = await client.post(_graph_token_url(cfg, tenant), data=data)
             if response.status_code == 200:
@@ -160,7 +160,7 @@ def _graph_client(cfg: BillingConfig, token: str) -> httpx.AsyncClient:
     return httpx.AsyncClient(
         base_url=cfg.ingest.graph.graph_base,
         headers={"Authorization": f"Bearer {token}"},
-        timeout=timedelta(seconds=30),
+        timeout=30.0,
     )
 
 
@@ -246,7 +246,7 @@ def _api_client(cfg: BillingConfig) -> httpx.AsyncClient:
     return httpx.AsyncClient(
         base_url=cfg.ingest.mistral_api_base,
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        timeout=timedelta(seconds=30),
+        timeout=30.0,
     )
 
 

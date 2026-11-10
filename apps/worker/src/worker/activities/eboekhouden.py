@@ -24,7 +24,7 @@ def _client(cfg: BillingConfig) -> httpx.AsyncClient:
     return httpx.AsyncClient(
         base_url=cfg.eboekhouden.base_url,
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        timeout=timedelta(seconds=60),
+        timeout=60.0,
     )
 
 
