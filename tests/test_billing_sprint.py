@@ -314,3 +314,24 @@ def test_reminder_inherits_primary_cc():
     assert msg.to == ["abhirup.ghosh1@tcs.com"]
     assert msg.cc == ["pranab.mukherjee@tcs.com", "timesheets@geeksoftconsulting.com", "vandana.c@geeksoft.eu"]
     assert "[SP-2026-10-20]" in msg.subject
+
+
+async def test_overrides_reach_load_config(temporal_env):
+    LOAD_CONFIG_OVERRIDES.clear()
+    SENT_MAILS.clear()
+    async with create_test_worker(
+        temporal_env, workflows=[BillingSprintWorkflow], activities=MOCK_ACTIVITIES
+    ):
+        handle = await temporal_env.client.start_workflow(
+            "billing-sprint",
+            SprintInput(
+                run_date=date(2026, 10, 19),
+                dry_run=True,
+                overrides={"mail": {"timesheet": {"to": ["admin@guero.nl"]}}},
+            ),
+            id="test-overrides",
+            task_queue="test-task-queue",
+        )
+        result = await handle.result()
+        assert result["status"] == "completed"
+        assert LOAD_CONFIG_OVERRIDES == [{"mail": {"timesheet": {"to": ["admin@guero.nl"]}}}]

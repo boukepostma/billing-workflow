@@ -296,3 +296,25 @@ def test_customer_decision_reject_in_new_part():
         "please reject this timesheet",
     )
     assert payload["confirmed"] is False
+
+
+def test_overrides_deep_merge():
+    from worker.activities.settings import load_billing_config
+
+    cfg = load_billing_config(
+        overrides={
+            "mail": {
+                "timesheet": {"to": ["admin@guero.nl"], "cc": []},
+                "invoice": {"to": ["admin@guero.nl"]},
+            },
+            "sprint": {"hours_per_day": 6},
+        }
+    )
+    assert cfg.mail.timesheet.to == ["admin@guero.nl"]
+    assert cfg.mail.timesheet.cc == []
+    assert cfg.mail.invoice.to == ["admin@guero.nl"]
+    assert cfg.mail.invoice.cc == ["vandana.c@geeksoft.eu"]  # deep-merged, not replaced
+    assert cfg.mail.proposal.to == []                        # untouched
+    assert cfg.sprint.hours_per_day == 6.0
+    assert cfg.sprint.anchor_tuesday is not None             # untouched
+    assert cfg.eboekhouden.relation_code == "GEEKSOFT"       # untouched
