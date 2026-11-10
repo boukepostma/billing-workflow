@@ -122,6 +122,4 @@ ingest:
   poll_limit: 50
   lookback_days: 30
   ref_pattern: 'SP-\d{4}-\d{2}-\d{2}'
-  mistral_api_base: "https://api.mistral.ai"
-  mistral_api_key_env: "MISTRAL_API_KEY"   # injected into the managed deployment
-  billing_workflow_name: "billing-sprint"
+  billing_workflow_name: "billing-sprint"   # dispatch uses the deployment service account via the SDK client

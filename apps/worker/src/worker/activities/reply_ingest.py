@@ -243,50 +243,44 @@ async def mark_replies_processed(cfg: BillingConfig, message_ids: list[str]) -> 
                 continue
 
 
-def _api_client(cfg: BillingConfig) -> httpx.AsyncClient:
-    api_key = os.environ[cfg.ingest.mistral_api_key_env]
-    return httpx.AsyncClient(
-        base_url=cfg.ingest.mistral_api_base,
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        timeout=30.0,
-    )
+def _mistral_client(cfg: BillingConfig):
+    from mistralai.workflows.client import get_mistral_client
+
+    return get_mistral_client()
 
 
 async def _find_running_execution(cfg: BillingConfig, sprint_start: date) -> str | None:
-    async with _api_client(cfg) as client:
-        response = await client.get("/v1/workflows/executions")
-        response.raise_for_status()
-        payload = response.json()
-        executions = payload.get("executions", payload if isinstance(payload, list) else [])
-        for execution in executions:
-            if execution.get("workflow_name") != cfg.ingest.billing_workflow_name:
-                continue
-            if execution.get("status") not in ("RUNNING", "running", None):
-                continue
-            execution_id = execution.get("execution_id") or execution.get("id")
-            if not execution_id:
-                continue
-            query = await client.post(
-                f"/v1/workflows/executions/{execution_id}/queries",
-                json={"name": "state"},
+    client = _mistral_client(cfg)
+    runs = await client.workflows.runs.list_runs_async(
+        workflow_identifier=cfg.ingest.billing_workflow_name, page_size=50
+    )
+    items = getattr(runs, "result", None) or []
+    for run in items:
+        data = run.model_dump() if hasattr(run, "model_dump") else dict(run)
+        if str(data.get("status", "")).upper() not in ("RUNNING",):
+            continue
+        execution_id = data.get("execution_id") or data.get("id")
+        if not execution_id:
+            continue
+        try:
+            query = await client.workflows.executions.query_workflow_execution_async(
+                execution_id=str(execution_id), name="state"
             )
-            if query.status_code != 200:
-                continue
-            state = query.json()
-            result = state.get("result", state)
-            state_start = result.get("sprint_start") if isinstance(result, dict) else None
-            if state_start == sprint_start.isoformat():
-                return str(execution_id)
+        except Exception:
+            continue
+        payload = getattr(query, "result", None)
+        if hasattr(payload, "model_dump"):
+            payload = payload.model_dump()
+        if isinstance(payload, dict) and payload.get("sprint_start") == sprint_start.isoformat():
+            return str(execution_id)
     return None
 
 
 async def _signal_execution(cfg: BillingConfig, execution_id: str, name: str, payload: dict) -> None:
-    async with _api_client(cfg) as client:
-        response = await client.post(
-            f"/v1/workflows/executions/{execution_id}/signals",
-            json={"name": name, "input": payload},
-        )
-        response.raise_for_status()
+    client = _mistral_client(cfg)
+    await client.workflows.executions.signal_workflow_execution_async(
+        execution_id=execution_id, name=name, input=payload
+    )
 
 
 @workflows.activity(

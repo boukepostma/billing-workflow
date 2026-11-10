@@ -119,8 +119,6 @@ class IngestCfg(BaseModel):
     poll_limit: int = 50
     lookback_days: int = 30
     ref_pattern: str = r"SP-\d{4}-\d{2}-\d{2}"
-    mistral_api_base: str = "https://api.mistral.ai"
-    mistral_api_key_env: str = "MISTRAL_API_KEY"
     billing_workflow_name: str = "billing-sprint"
 
 
