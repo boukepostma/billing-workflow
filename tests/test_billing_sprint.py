@@ -4,7 +4,7 @@ from datetime import date, datetime, timezone
 import mistralai.workflows as workflows
 from mistralai.workflows.testing import create_test_worker
 
-from worker.workflows.billing_sprint import BillingSprintWorkflow
+from worker.workflows.billing_sprint import BillingSprintWorkflow, _merge_entries
 from worker.workflows.config_models import BillingConfig
 from worker.workflows.models import (
     ConfirmHours,
@@ -201,8 +201,10 @@ async def test_owner_changes_hours_via_signal(temporal_env):
         )
         result = await handle.result()
         assert result["status"] == "completed"
-        assert [r["date"] for r in result["registered"]] == ["2026-10-06"]
-        assert INVOICES[0].regels[0].aantal == 4.0
+        registered = {r["date"]: r["hours"] for r in result["registered"]}
+        assert len(registered) == 9
+        assert registered["2026-10-06"] == 4.0
+        assert INVOICES[0].regels[0].aantal == 68.0  # 72 - 4
 
 
 async def test_dry_run_completes_without_side_effects(temporal_env):
@@ -228,3 +230,68 @@ async def test_dry_run_completes_without_side_effects(temporal_env):
         assert INVOICES == []
         assert SENT_INVOICES == []
         assert PAID_CHECKS == []
+
+
+def test_merge_entries_semantics():
+    from datetime import date as d
+
+    proposal = [HoursEntry(date=d(2026, 10, 20), hours=8.0), HoursEntry(date=d(2026, 10, 21), hours=8.0)]
+    overrides = [
+        HoursEntry(date=d(2026, 10, 21), hours=4.0),   # override
+        HoursEntry(date=d(2026, 10, 20), hours=0.0),   # remove
+        HoursEntry(date=d(2026, 10, 25), hours=6.0),   # add (in sprint)
+        HoursEntry(date=d(2026, 12, 24), hours=8.0),   # outside sprint -> ignored
+    ]
+    merged = _merge_entries(proposal, overrides, d(2026, 10, 20), d(2026, 11, 9))
+    assert [(e.date.isoformat(), e.hours) for e in merged] == [
+        ("2026-10-21", 4.0),
+        ("2026-10-25", 6.0),
+    ]
+    assert _merge_entries(proposal, None, d(2026, 10, 20), d(2026, 11, 9)) == proposal
+
+
+async def test_partial_reply_merges(temporal_env):
+    SENT_MAILS.clear()
+    REGISTRATIONS.clear()
+    INVOICES.clear()
+    SENT_INVOICES.clear()
+    PAID_CHECKS.clear()
+    async with create_test_worker(
+        temporal_env, workflows=[BillingSprintWorkflow], activities=MOCK_ACTIVITIES
+    ):
+        handle = await temporal_env.client.start_workflow(
+            "billing-sprint",
+            SprintInput(run_date=date(2026, 10, 19)),
+            id="test-merge",
+            task_queue="test-task-queue",
+        )
+        await asyncio.sleep(0.1)
+        await handle.signal(
+            "confirm_hours",
+            ConfirmHours(
+                ref="SP-2026-09-29",
+                sender="admin@guero.nl",
+                entries=[
+                    {"date": "2026-10-06", "hours": 4.0},
+                    {"date": "2026-09-29", "hours": 0.0},
+                    {"date": "2026-10-08", "hours": 6.0},
+                ],
+            ).model_dump(mode="json"),
+        )
+        await handle.signal(
+            "customer_confirmation",
+            CustomerConfirmation(
+                ref="SP-2026-09-29",
+                sender="x@tcs.com",
+                confirmed=True,
+                received_at=datetime(2026, 10, 21, 9, 0, tzinfo=timezone.utc),
+            ).model_dump(mode="json"),
+        )
+        result = await handle.result()
+        assert result["status"] == "completed"
+        registered = [(r["date"], r["hours"]) for r in result["registered"]]
+        assert ("2026-09-29", 8.0) not in registered
+        assert ("2026-10-06", 4.0) in registered
+        assert ("2026-10-08", 6.0) in registered
+        assert len(registered) == 9
+        assert INVOICES[0].regels[0].aantal == 66.0  # 7x8 + 4 + 6

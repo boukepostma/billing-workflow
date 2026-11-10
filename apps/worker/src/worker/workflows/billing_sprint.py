@@ -32,6 +32,29 @@ async def _sleep(duration: timedelta) -> None:
         pass
 
 
+
+
+def _merge_entries(
+    proposal: list[HoursEntry],
+    overrides: list[HoursEntry] | None,
+    sprint_start: date,
+    sprint_end: date,
+) -> list[HoursEntry]:
+    if not overrides:
+        return list(proposal)
+    override_map = {e.date: e.hours for e in overrides}
+    merged: list[HoursEntry] = []
+    for p in proposal:
+        hours = override_map.pop(p.date, p.hours)
+        if hours > 0:
+            merged.append(HoursEntry(date=p.date, hours=hours))
+    for extra_date, hours in override_map.items():
+        if sprint_start <= extra_date <= sprint_end and hours > 0:
+            merged.append(HoursEntry(date=extra_date, hours=hours))
+    merged.sort(key=lambda e: e.date)
+    return merged
+
+
 def _recipients(cfg: BillingConfig, template, default_to: list[str]) -> tuple[list[str], list[str]]:
     to = template.to or default_to
     return to, template.cc
@@ -63,8 +86,11 @@ def _proposal_mail(cfg: BillingConfig, ref: str, sprint_start: date, sprint_end:
         f"customer {cfg.eboekhouden.relation_code}, project \"{cfg.eboekhouden.project}\", "
         f"{cfg.eboekhouden.kilometers} km):\n\n"
         f"{lines}\n\n"
-        f"Reply to this mail to confirm as-is (e.g. \"confirm\"), or suggest changes as lines like "
-        f"\"2026-10-06: 4\" (one per day). Reference: {ref}\n"
+        f"Reply to this mail:\n"
+        f"- \"confirm\" to accept the full proposal as-is, or\n"
+        f"- send only the lines you want to change or add, e.g. \"2026-10-28: 4\" (override that day), "
+        f"\"2026-11-02: 6\" (add a day), or \"2026-10-27: 0\" (remove a day). "
+        f"Days you don't mention keep the proposed {cfg.sprint.hours_per_day:g} hours. Reference: {ref}\n"
     )
     to, cc = _recipients(cfg, cfg.mail.proposal, [cfg.owner.email])
     iso = {"sprint_start": sprint_start.isoformat(), "sprint_end": sprint_end.isoformat(), "ref": ref}
@@ -198,8 +224,12 @@ class BillingSprintWorkflow:
             result.status = "cancelled"
             result.detail = self._cancel_reason
             return result
-        entries = self._hours_confirmation.entries if self._hours_confirmation else None
-        entries = entries or proposal
+        entries = _merge_entries(
+            proposal,
+            self._hours_confirmation.entries if self._hours_confirmation else None,
+            sprint_start,
+            sprint_end,
+        )
 
         self._phase = "registering_hours"
         if input.dry_run:
