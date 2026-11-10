@@ -170,15 +170,15 @@ def test_run_items_normalization():
 
 
 def test_run_items_model_response():
-    from mistralai.client.models.workflowexecutionlistresponse import WorkflowExecutionListResponse
     from worker.activities.reply_ingest import _run_items
+
+    class FakeListResp:
+        def model_dump(self):
+            return {"executions": [{"execution_id": "e9", "status": "RUNNING"}], "next_page_token": None}
 
     class Resp:
         def __init__(self, result):
             self.result = result
 
-    resp = WorkflowExecutionListResponse.model_construct(
-        executions=[{"execution_id": "e9", "status": "RUNNING"}], next_page_token=None
-    )
-    items = _run_items(Resp(resp))
+    items = _run_items(Resp(FakeListResp()))
     assert items == [{"execution_id": "e9", "status": "RUNNING"}]
