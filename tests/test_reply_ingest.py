@@ -137,3 +137,19 @@ def test_token_tenant_candidates_fallback_order():
     ]
     cfg.ingest.graph.tenant_id = "consumers"
     assert _token_tenant_candidates(cfg) == ["consumers", "common"]
+
+
+def test_coerce_list_unwraps_payload_wrapper_around_json_array():
+    import json
+
+    from mistralai.workflows.models.payload import PayloadWithContext
+    from worker.workflows.activity_calls import coerce_list
+    from worker.workflows.models import ReplyEmail
+
+    payload = PayloadWithContext.model_construct(
+        context=None,
+        payload=json.dumps([{"message_id": "m1", "sender": "a@guero.nl", "subject": "s", "date": "2026-11-10T00:00:00Z", "body": "confirm"}]),
+    )
+    replies = coerce_list(payload, ReplyEmail)
+    assert len(replies) == 1
+    assert replies[0].sender == "a@guero.nl"

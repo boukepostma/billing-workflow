@@ -51,6 +51,20 @@ def coerce(value: Any, model_cls: type[T]) -> T:
 
 
 def coerce_list(value: Any, model_cls: type[T]) -> list[T]:
-    if isinstance(value, str):
-        value = json.loads(value)
+    for _ in range(10):
+        if isinstance(value, str):
+            value = json.loads(value)
+            continue
+        if isinstance(value, (bytes, bytearray)):
+            value = json.loads(value.decode("utf-8"))
+            continue
+        if isinstance(value, BaseModel) and hasattr(value, "payload"):
+            value = value.payload
+            continue
+        if isinstance(value, BaseModel):
+            value = value.model_dump(mode="json")
+            continue
+        break
+    if isinstance(value, dict) and "items" in value and isinstance(value["items"], list):
+        value = value["items"]
     return [coerce(item, model_cls) for item in (value or [])]
