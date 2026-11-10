@@ -26,19 +26,24 @@ customer:
   confirm_domains: ["tcs.com"]    # any sender on these domains may confirm the timesheet
 
 eboekhouden:
-  base_url: "https://api.e-boekhouden.nl/v1"
+  base_url: "https://api.e-boekhouden.nl"
   token_env: "EBOEKHOUDEN_API_TOKEN"   # workspace secret (Beheer > Inrichting > Koppelingen > API)
+  session_source: "billingwf"          # POST /v1/session source (max 10 chars)
+  hours_via_api: false                 # REST v1 and SOAP expose no urenregistratie endpoint (verified against the live OpenAPI spec and SOAP WSDL); hours are carried on the invoice line instead
   relation_code: "GEEKSOFT"            # debiteur/customer code
   medewerker: "Bouke Postma"
   project: "Project for Tata Consultancy Services Netherlands"
   kilometers: 0                        # km gereden per registration
   hours_description: "Consultancy hours"
   endpoints:
-    hours: "/urenregistraties"
-    invoice: "/facturen"
-    outstanding: "/mutation/invoice/outstanding"
-    invoice_pdf: "/facturen/{invoice_id}/pdf"
-    send_invoice: "/facturen/{invoice_id}/send"   # used when send_prefer=eboekhouden; SMTP is the fallback
+    hours: "/v1/urenregistraties"
+    invoice: "/v1/invoice"
+    outstanding: "/v1/mutation/invoice/outstanding"
+    relation: "/v1/relation"
+    invoicetemplate: "/v1/invoicetemplate"
+    emailtemplate: "/v1/emailtemplate"
+    unit: "/v1/unit"
+    ledger: "/v1/ledger"
   invoice:
     factuursjabloon: "EN - Simpel met aantallen"
     emailsjabloon: "02. EN - Eerste Factuur"
@@ -55,7 +60,9 @@ eboekhouden:
     line_omschrijving_template: "Sprint {start} - {end}"
     date_format: "nl-short"            # "nl-short" = "29 sept" | "iso" = "2026-09-29"
     month_names: [jan, feb, mrt, apr, mei, jun, jul, aug, sept, okt, nov, dec]
-    send_prefer: "eboekhouden"         # try e-Boekhouden mail send first, fall back to SMTP
+    unit_name: "uren"                  # unit resolved via GET /v1/unit
+    ledger_code: ""                    # ledger resolved via GET /v1/ledger?code=; empty = first category Omzet
+    send_prefer: "smtp"                # REST v1 can only email the invoice to the relation address (email block at creation); SMTP sends to the configured to/cc with the PDF (urlPdfFile)
 
 mail:
   # SMTP (Proton Mail, e.g. smtp.protonmail.ch:587 STARTTLS). Values come from

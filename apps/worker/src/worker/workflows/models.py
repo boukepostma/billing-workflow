@@ -70,6 +70,7 @@ class InvoiceResult(BaseModel):
     invoice_number: str | None = None
     factuur_datum: date | None = None
     linked_hours: bool = False
+    pdf_url: str | None = None
 
 
 class SendInvoiceParams(BaseModel):

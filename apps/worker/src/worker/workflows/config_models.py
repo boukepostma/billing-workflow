@@ -23,11 +23,14 @@ class CustomerCfg(BaseModel):
 
 
 class EbEndpoints(BaseModel):
-    hours: str = "/urenregistraties"
-    invoice: str = "/facturen"
-    outstanding: str = "/mutation/invoice/outstanding"
-    invoice_pdf: str = "/facturen/{invoice_id}/pdf"
-    send_invoice: str = "/facturen/{invoice_id}/send"
+    hours: str = "/v1/urenregistraties"          # not exposed by REST v1; used only if hours_via_api=true
+    invoice: str = "/v1/invoice"
+    outstanding: str = "/v1/mutation/invoice/outstanding"
+    relation: str = "/v1/relation"
+    invoicetemplate: str = "/v1/invoicetemplate"
+    emailtemplate: str = "/v1/emailtemplate"
+    unit: str = "/v1/unit"
+    ledger: str = "/v1/ledger"
 
 
 class InvoiceCfg(BaseModel):
@@ -35,8 +38,10 @@ class InvoiceCfg(BaseModel):
     emailsjabloon: str = "02. EN - Eerste Factuur"
     product_code: str = "UREN"
     hourly_rate: float = 105.0
-    vat_code: str = "HOOG"
+    vat_code: str = "HOOG_VERK_21"
     vat_label: str = "Btw hoog 21%"
+    unit_name: str = "uren"                  # resolved via GET /v1/unit (singular/plural)
+    ledger_code: str = ""                    # resolved via GET /v1/ledger?code=; empty = first category 'Omzet'
     payment_term_days: int = 45
     check_after_days: int = 46
     link_hours: bool = True
@@ -51,11 +56,13 @@ class InvoiceCfg(BaseModel):
             "jul", "aug", "sept", "okt", "nov", "dec",
         ]
     )
-    send_prefer: str = "eboekhouden"
+    send_prefer: str = "smtp"
 
 
 class EboekhoudenCfg(BaseModel):
-    base_url: str = "https://api.e-boekhouden.nl/v1"
+    base_url: str = "https://api.e-boekhouden.nl"
+    session_source: str = "billingwf"        # POST /v1/session source (max 10 chars)
+    hours_via_api: bool = False              # REST v1/SOAP expose no hours endpoint; hours ride on the invoice line
     token_env: str = "EBOEKHOUDEN_API_TOKEN"
     relation_code: str = "GEEKSOFT"
     medewerker: str = "Bouke Postma"

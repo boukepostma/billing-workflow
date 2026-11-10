@@ -182,3 +182,39 @@ def test_run_items_model_response():
 
     items = _run_items(Resp(FakeListResp()))
     assert items == [{"execution_id": "e9", "status": "RUNNING"}]
+
+
+def test_invoice_body_real_rest_shape():
+    from datetime import date
+
+    from worker.activities.eboekhouden import _invoice_body
+    from worker.workflows.config_models import BillingConfig
+    from worker.workflows.models import CreateInvoiceParams, InvoiceLine
+
+    cfg = BillingConfig()
+    params = CreateInvoiceParams(
+        ref="SP-2026-10-20",
+        sprint_start=date(2026, 10, 20),
+        sprint_end=date(2026, 11, 9),
+        factuur_datum=date(2026, 11, 12),
+        factuurtekst="Sprint 20 okt - 9 nov",
+        regels=[InvoiceLine(omschrijving="Sprint 20 okt - 9 nov", aantal=66.0)],
+    )
+    ids = {"relation_id": 123, "template_id": 45, "email_template_id": 6, "unit_id": 7, "ledger_id": 8000}
+    body = _invoice_body(params, cfg, ids)
+    assert body["relationId"] == 123
+    assert body["date"] == "2026-11-12"
+    assert body["termOfPayment"] == 45
+    assert body["templateId"] == 45
+    assert body["emailTemplateId"] == 6
+    assert body["text"] == "Sprint 20 okt - 9 nov"
+    assert body["reference"] == "SP-2026-10-20"
+    assert body["inExVat"] == "EX"
+    item = body["items"][0]
+    assert item["quantity"] == 66.0
+    assert item["code"] == "UREN"
+    assert item["pricePerUnit"] == 105.0
+    assert item["vatCode"] == "HOOG_VERK_21"
+    assert item["ledgerId"] == 8000
+    assert item["unitId"] == 7
+    assert item["description"] == "Sprint 20 okt - 9 nov"
