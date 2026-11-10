@@ -185,6 +185,13 @@ async def create_invoice(params: CreateInvoiceParams, cfg: BillingConfig) -> str
     }
     body = _invoice_body(params, cfg, ids)
     response = await _request(cfg, "POST", cfg.eboekhouden.endpoints.invoice, json=body)
+    if response.status_code >= 300:
+        logger.warning(
+            "create-invoice failed: status=%s response=%s request=%s",
+            response.status_code,
+            response.text[:600],
+            json.dumps(body)[:900],
+        )
     response.raise_for_status()
     data = response.json()
     invoice_id = data.get("id")
