@@ -328,10 +328,12 @@ class BillingSprintWorkflow:
         self._phase = "sending_invoice"
         invoice_sent_at = workflow.now()
         result.invoice_sent_at = invoice_sent_at
-        if not input.dry_run:
-            pdf = None
-            if not preview and invoice.invoice_id:
-                pdf = await call_activity("download-invoice-pdf", invoice.invoice_id, cfg)
+        if not input.dry_run and not preview:
+            pdf = (
+                await call_activity("download-invoice-pdf", invoice.invoice_id, cfg)
+                if invoice.invoice_id
+                else None
+            )
             dates_iso = {
                 "sprint_start": sprint_start.isoformat(),
                 "sprint_end": sprint_end.isoformat(),
