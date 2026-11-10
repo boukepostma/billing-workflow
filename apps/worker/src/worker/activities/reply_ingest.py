@@ -253,6 +253,8 @@ def _run_items(runs) -> list:
     result = getattr(runs, "result", None)
     if result is None:
         return []
+    if hasattr(result, "model_dump"):
+        result = result.model_dump()
     if isinstance(result, list):
         return result
     if isinstance(result, dict):
