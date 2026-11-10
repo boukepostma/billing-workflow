@@ -55,26 +55,6 @@ def _merge_entries(
     return merged
 
 
-
-
-def _preview_wrap(cfg: BillingConfig, msg: MailMessage) -> MailMessage:
-    banner = (
-        f"[PREVIEW - not sent to customers. Original To: {', '.join(msg.to)}; "
-        f"Cc: {', '.join(msg.cc)}]\n\n"
-    )
-    return MailMessage(
-        to=[cfg.owner.email],
-        cc=[],
-        subject=f"[PREVIEW] {msg.subject}",
-        body=banner + msg.body,
-        ref=msg.ref,
-    )
-
-
-def _send(cfg: BillingConfig, msg: MailMessage, preview: bool) -> MailMessage:
-    return _preview_wrap(cfg, msg) if preview else msg
-
-
 def _recipients(
     cfg: BillingConfig, template, default_to: list[str], default_cc: list[str] | None = None
 ) -> tuple[list[str], list[str]]:
@@ -231,21 +211,17 @@ class BillingSprintWorkflow:
         )
         self._sprint_start = sprint_start
 
-        preview = input.preview
-        if not input.dry_run:
-            self._phase = "awaiting_owner_confirmation"
-            await call_activity(
-                "send-mail",
-                _send(cfg, _proposal_mail(cfg, ref, sprint_start, sprint_end, proposal), preview),
-                cfg,
-            )
-        if input.dry_run or preview:
-            self._hours_confirmation = ConfirmHours(ref=ref, note="dry-run/preview auto-confirm")
+        if input.dry_run:
+            self._hours_confirmation = ConfirmHours(ref=ref, note="dry-run auto-confirm")
             self._customer_confirmation = CustomerConfirmation(
-                ref=ref, sender="preview@example.com", confirmed=True, received_at=now
+                ref=ref, sender="dry-run@example.com", confirmed=True, received_at=now
             )
         else:
-            await self._wait_for_owner(cfg, ref, sprint_start, sprint_end, preview)
+            self._phase = "awaiting_owner_confirmation"
+            await call_activity(
+                "send-mail", _proposal_mail(cfg, ref, sprint_start, sprint_end, proposal), cfg
+            )
+            await self._wait_for_owner(cfg, ref, sprint_start, sprint_end)
 
         if self._cancel_reason is not None:
             result.status = "cancelled"
@@ -259,7 +235,7 @@ class BillingSprintWorkflow:
         )
 
         self._phase = "registering_hours"
-        if input.dry_run or preview:
+        if input.dry_run:
             registered = [
                 HoursRegistration(date=e.date, hours=e.hours, registration_id="DRY-RUN")
                 for e in entries
@@ -273,12 +249,9 @@ class BillingSprintWorkflow:
         result.timesheet_sent_at = timesheet_sent_at
         if not input.dry_run:
             await call_activity(
-                "send-mail",
-                _send(cfg, _timesheet_mail(cfg, ref, sprint_start, sprint_end, registered), preview),
-                cfg,
+                "send-mail", _timesheet_mail(cfg, ref, sprint_start, sprint_end, registered), cfg
             )
-        if not input.dry_run and not preview:
-            await self._wait_for_customer(cfg, ref, sprint_start, sprint_end, timesheet_sent_at, result, preview)
+            await self._wait_for_customer(cfg, ref, sprint_start, sprint_end, timesheet_sent_at, result)
 
         confirmation = self._customer_confirmation
         if confirmation is None or not confirmation.confirmed:
@@ -317,7 +290,7 @@ class BillingSprintWorkflow:
             regels=regels,
             registration_ids=[r.registration_id for r in registered if r.registration_id],
         )
-        if input.dry_run or preview:
+        if input.dry_run:
             invoice = InvoiceResult(
                 invoice_id="DRY-RUN", invoice_number="DRY-RUN", factuur_datum=invoice_date
             )
@@ -328,7 +301,7 @@ class BillingSprintWorkflow:
         self._phase = "sending_invoice"
         invoice_sent_at = workflow.now()
         result.invoice_sent_at = invoice_sent_at
-        if not input.dry_run and not preview:
+        if not input.dry_run:
             pdf = (
                 await call_activity("download-invoice-pdf", invoice.invoice_id, cfg)
                 if invoice.invoice_id
@@ -356,18 +329,10 @@ class BillingSprintWorkflow:
                 attachment_name=f"invoice-{invoice.invoice_number}.pdf" if pdf else None,
                 attachment_pdf=pdf,
             )
-            if preview:
-                send_params.to = [cfg.owner.email]
-                send_params.cc = []
-                send_params.smtp_subject = f"[PREVIEW] {send_params.smtp_subject}"
-                send_params.smtp_body = (
-                    f"[PREVIEW - not sent to customers. Original To: {', '.join(cfg.mail.invoice.to)}; "
-                    f"Cc: {', '.join(cfg.mail.invoice.cc)}]\n\n" + send_params.smtp_body
-                )
             await call_activity("send-invoice", send_params, cfg)
 
         self._phase = "monitoring_payment"
-        if not input.dry_run and not preview:
+        if not input.dry_run:
             await _sleep(timedelta(days=cfg.eboekhouden.invoice.check_after_days))
             escalated = False
             while True:
@@ -406,7 +371,7 @@ class BillingSprintWorkflow:
         return result
 
     async def _wait_for_owner(
-        self, cfg: BillingConfig, ref: str, sprint_start: date, sprint_end: date, preview: bool
+        self, cfg: BillingConfig, ref: str, sprint_start: date, sprint_end: date
     ) -> None:
         deadline = workflow.now() + timedelta(days=cfg.timeouts.owner_confirm_days)
         escalated = False
@@ -425,21 +390,21 @@ class BillingSprintWorkflow:
                     escalated = True
                     await call_activity(
                         "send-mail",
-                        _send(cfg, _simple_mail(
+                        _simple_mail(
                             cfg, cfg.mail.escalation, [cfg.owner.email], [], ref, sprint_start, sprint_end,
                             f"No hours confirmation received for {ref} within "
                             f"{cfg.timeouts.owner_confirm_days} days; still waiting.",
-                        ), preview),
+                        ),
                         cfg,
                     )
                 elif workflow.now() < deadline or not escalated:
                     await call_activity(
                         "send-mail",
-                        _send(cfg, _simple_mail(
+                        _simple_mail(
                             cfg, cfg.mail.owner_reminder, [cfg.owner.email], [], ref, sprint_start, sprint_end,
                             f"Reminder: please confirm the proposed hour registration for {ref} "
                             f"by replying to the proposal mail.",
-                        ), preview),
+                        ),
                         cfg,
                     )
 
@@ -451,7 +416,6 @@ class BillingSprintWorkflow:
         sprint_end: date,
         sent_at: datetime,
         result: SprintResult,
-        preview: bool,
     ) -> None:
         deadline = sent_at + timedelta(days=cfg.timeouts.customer_confirm_days)
         escalated = False
@@ -461,11 +425,11 @@ class BillingSprintWorkflow:
                 escalated = True
                 await call_activity(
                     "send-mail",
-                    _send(cfg, _simple_mail(
+                    _simple_mail(
                         cfg, cfg.mail.escalation, [cfg.owner.email], [], ref, sprint_start, sprint_end,
                         f"No timesheet confirmation from the customer for {ref} within "
                         f"{cfg.timeouts.customer_confirm_days} days; still waiting.",
-                    ), preview),
+                    ),
                     cfg,
                 )
             next_reminder = cal.next_reminder_time(
@@ -480,13 +444,13 @@ class BillingSprintWorkflow:
                 if workflow.now() >= next_reminder:
                     await call_activity(
                         "send-mail",
-                        _send(cfg, _simple_mail(
+                        _simple_mail(
                             cfg, cfg.mail.timesheet_reminder, cfg.mail.timesheet.to, cfg.mail.timesheet.cc, ref,
                             sprint_start, sprint_end,
                             f"Reminder: please confirm the timesheet for sprint "
                             f"{sprint_start.isoformat()} - {sprint_end.isoformat()} by replying "
                             f"to this mail.",
-                        ), preview),
+                        ),
                         cfg,
                     )
                     result.customer_reminders_sent += 1

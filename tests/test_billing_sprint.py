@@ -314,34 +314,3 @@ def test_reminder_inherits_primary_cc():
     assert msg.to == ["abhirup.ghosh1@tcs.com"]
     assert msg.cc == ["pranab.mukherjee@tcs.com", "timesheets@geeksoftconsulting.com", "vandana.c@geeksoft.eu"]
     assert "[SP-2026-10-20]" in msg.subject
-
-
-async def test_preview_sends_only_to_owner_and_skips_eboekhouden(temporal_env):
-    SENT_MAILS.clear()
-    REGISTRATIONS.clear()
-    INVOICES.clear()
-    SENT_INVOICES.clear()
-    PAID_CHECKS.clear()
-    async with create_test_worker(
-        temporal_env, workflows=[BillingSprintWorkflow], activities=MOCK_ACTIVITIES
-    ):
-        handle = await temporal_env.client.start_workflow(
-            "billing-sprint",
-            SprintInput(run_date=date(2026, 10, 19), preview=True),
-            id="test-preview",
-            task_queue="test-task-queue",
-        )
-        result = await handle.result()
-        assert result["status"] == "completed"
-        assert REGISTRATIONS == [] and INVOICES == [] and PAID_CHECKS == []
-        assert len(SENT_MAILS) >= 2
-        for m in SENT_MAILS:
-            assert m.to == ["admin@guero.nl"]
-            assert m.cc == []
-            assert m.subject.startswith("[PREVIEW]")
-        subjects = [m.subject for m in SENT_MAILS]
-        assert any("Hours registration proposal" in s for s in subjects)
-        assert any("Timesheet for your approval" in s for s in subjects)
-        assert SENT_INVOICES and SENT_INVOICES[0].to == ["admin@guero.nl"]
-        assert SENT_INVOICES[0].smtp_subject.startswith("[PREVIEW]")
-        assert "abhirup.ghosh1@tcs.com" not in SENT_MAILS[0].body or "PREVIEW" in SENT_MAILS[0].body

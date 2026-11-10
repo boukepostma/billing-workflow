@@ -13,7 +13,6 @@ class SprintInput(BaseModel):
     run_date: date | None = None
     sprint_start: date | None = None
     dry_run: bool = False
-    preview: bool = False            # send all mails to the owner only, with [PREVIEW] banner; no e-Boekhouden writes
     overrides: dict[str, Any] | None = None
 
 
