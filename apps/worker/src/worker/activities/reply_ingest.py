@@ -66,6 +66,44 @@ def is_confirm_text(body: str) -> bool:
     return any(word in lowered for word in CONFIRM_WORDS)
 
 
+QUOTE_START_RE = re.compile(
+    r"(original message|forwarded message|begin forwarded message|^on .+ wrote:$)", re.IGNORECASE
+)
+
+
+def strip_quoted_text(body: str) -> str:
+    lines = body.splitlines()
+    out: list[str] = []
+    for i, line in enumerate(lines):
+        if QUOTE_START_RE.search(line) or line.lstrip().startswith(">"):
+            break
+        if line.startswith("From:") and i + 1 < len(lines) and lines[i + 1].startswith("Sent:"):
+            break
+        out.append(line)
+    return "\n".join(out)
+
+
+def owner_decision(ref: str, sender: str, body: str) -> tuple[str, dict]:
+    new_body = strip_quoted_text(body)
+    entries = parse_entries(new_body)
+    confirmed = is_confirm_text(new_body) or not new_body.strip()
+    if not confirmed and entries is None:
+        return "cancel", {"reason": new_body[:500]}
+    payload = ConfirmHours(
+        ref=ref, sender=sender, entries=entries, note=new_body[:500]
+    ).model_dump(mode="json")
+    return "confirm_hours", payload
+
+
+def customer_decision(ref: str, sender: str, received_at: datetime, body: str) -> dict:
+    new_body = strip_quoted_text(body)
+    lowered = new_body.lower()
+    confirmed = not any(word in lowered for word in REJECT_WORDS)
+    return CustomerConfirmation(
+        ref=ref, sender=sender, confirmed=confirmed, received_at=received_at
+    ).model_dump(mode="json")
+
+
 def _pick(payload: dict, *keys: str) -> str:
     for key in keys:
         value = payload.get(key)
@@ -347,22 +385,9 @@ async def dispatch_reply(reply: ReplyEmail, cfg: BillingConfig, dry_run: bool = 
         return IngestOutcome(message_id=reply.message_id, outcome="ignored_no_ref", detail=reply.subject)
     sprint_start = cal.parse_ref(ref)
     if kind == "owner":
-        entries = parse_entries(reply.body)
-        if not is_confirm_text(reply.body) and entries is None:
-            payload = {"reason": reply.body[:500]}
-            signal_name = "cancel"
-        else:
-            payload = ConfirmHours(
-                ref=ref, sender=reply.sender, entries=entries, note=reply.body[:500]
-            ).model_dump(mode="json")
-            signal_name = "confirm_hours"
+        signal_name, payload = owner_decision(ref, reply.sender, reply.body)
     else:
-        payload = CustomerConfirmation(
-            ref=ref,
-            sender=reply.sender,
-            confirmed=is_confirm_text(reply.body),
-            received_at=reply.date,
-        ).model_dump(mode="json")
+        payload = customer_decision(ref, reply.sender, reply.date, reply.body)
         signal_name = "customer_confirmation"
     execution_id = await _find_running_execution(cfg, sprint_start)
     if execution_id is None:

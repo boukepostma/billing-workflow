@@ -218,3 +218,81 @@ def test_invoice_body_real_rest_shape():
     assert item["ledgerId"] == 8000
     assert item["unitId"] == 7
     assert item["description"] == "Sprint 20 okt - 9 nov"
+
+
+FORWARDED_OWNER_REPLY = """2026-11-03: 6
+
+-------- Original Message --------
+From: admin@guero.nl
+Sent: Tuesday, 10 November 2026 01:23
+To: admin@guero.nl
+Subject: Hours registration proposal - Sprint 2026-10-20 - 2026-11-09 [SP-2026-10-20]
+
+Hi Bouke Postma,
+
+Sprint 20 okt - 9 nov has ended.
+
+Reply to this mail:
+- "confirm" to accept the full proposal as-is, or
+- send only the lines you want to change or add, e.g. "2026-10-28: 4" (override that day), "2026-11-02: 6" (add a day), or "2026-10-27: 0" (remove a day).
+
+- 2026-10-20 (Tuesday): 8 hours
+- 2026-10-28 (Wednesday): 8 hours
+"""
+
+
+def test_strip_quoted_text_cuts_at_original_message():
+    from worker.activities.reply_ingest import strip_quoted_text
+
+    stripped = strip_quoted_text(FORWARDED_OWNER_REPLY)
+    assert stripped.strip() == "2026-11-03: 6"
+    assert "2026-10-28: 4" not in stripped
+
+
+def test_owner_decision_ignores_quoted_examples():
+    from worker.activities.reply_ingest import owner_decision
+
+    signal, payload = owner_decision("SP-2026-10-20", "admin@guero.nl", FORWARDED_OWNER_REPLY)
+    assert signal == "confirm_hours"
+    assert payload["entries"] == [{"date": "2026-11-03", "hours": 6.0}]
+    assert "Original Message" not in payload["note"]
+
+
+def test_owner_decision_bare_forward_confirms():
+    from worker.activities.reply_ingest import owner_decision
+
+    body = '\n-------- Original Message --------\nFrom: admin@guero.nl\n"confirm" ... "2026-10-28: 4"'
+    signal, payload = owner_decision("SP-2026-10-20", "admin@guero.nl", body)
+    assert signal == "confirm_hours"
+    assert payload["entries"] is None
+
+
+def test_owner_decision_cancel_on_reject_words_only():
+    from worker.activities.reply_ingest import owner_decision
+
+    signal, payload = owner_decision("SP-2026-10-20", "admin@guero.nl", "no, please reject this\n\n> quoted")
+    assert signal == "cancel"
+
+
+def test_customer_decision_reject_in_quote_does_not_count():
+    from datetime import datetime, timezone
+
+    from worker.activities.reply_ingest import customer_decision
+
+    body = 'Looks good.\n\n-------- Original Message --------\nplease reject'
+    payload = customer_decision(
+        "SP-2026-10-20", "a@tcs.com", datetime(2026, 11, 12, tzinfo=timezone.utc), body
+    )
+    assert payload["confirmed"] is True
+
+
+def test_customer_decision_reject_in_new_part():
+    from datetime import datetime, timezone
+
+    from worker.activities.reply_ingest import customer_decision
+
+    payload = customer_decision(
+        "SP-2026-10-20", "a@tcs.com", datetime(2026, 11, 12, tzinfo=timezone.utc),
+        "please reject this timesheet",
+    )
+    assert payload["confirmed"] is False
