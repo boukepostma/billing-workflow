@@ -275,28 +275,49 @@ def _run_dict(run) -> dict | None:
 
 
 async def _find_running_execution(cfg: BillingConfig, sprint_start: date) -> str | None:
+    import json as _json
+    import logging
+
+    logger = logging.getLogger(__name__)
     client = _mistral_client(cfg)
     runs = await client.workflows.runs.list_runs_async(
         workflow_identifier=cfg.ingest.billing_workflow_name, page_size=50
     )
-    for run in _run_items(runs):
+    items = _run_items(runs)
+    logger.warning("find_running_execution: %d runs for %s", len(items), cfg.ingest.billing_workflow_name)
+    for run in items:
         data = _run_dict(run)
         if not data:
+            logger.warning("find_running_execution: unparseable run item: %r", str(run)[:120])
             continue
-        if str(data.get("status", "")).upper() != "RUNNING":
-            continue
+        status = str(data.get("status", "")).upper()
         execution_id = data.get("execution_id") or data.get("id")
-        if not execution_id:
+        logger.warning(
+            "find_running_execution: run %s status=%s keys=%s", execution_id, status, sorted(data.keys())
+        )
+        if status != "RUNNING" or not execution_id:
             continue
         try:
             query = await client.workflows.executions.query_workflow_execution_async(
                 execution_id=str(execution_id), name="state"
             )
-        except Exception:
+        except Exception as exc:
+            logger.warning("find_running_execution: query %s failed: %s", execution_id, exc)
             continue
         payload = getattr(query, "result", None)
+        if isinstance(payload, str):
+            try:
+                payload = _json.loads(payload)
+            except ValueError:
+                pass
         if hasattr(payload, "model_dump"):
             payload = payload.model_dump()
+        logger.warning(
+            "find_running_execution: query %s payload_type=%s payload=%s",
+            execution_id,
+            type(payload).__name__,
+            str(payload)[:200],
+        )
         if isinstance(payload, dict) and payload.get("sprint_start") == sprint_start.isoformat():
             return str(execution_id)
     return None
