@@ -88,10 +88,18 @@ async def _resolve_ledger_id(cfg: BillingConfig) -> int:
             return int(items[0]["id"])
         raise RuntimeError(f"ledger with code {inv.ledger_code} not found")
     data = await _get_json(cfg, "/v1/ledger", {"limit": 500})
-    for item in data.get("items", []):
-        if str(item.get("category", "")).lower() == "omzet":
+    items = data.get("items", [])
+    pnl = [i for i in items if str(i.get("category", "")).upper() == "VW"]
+    for item in pnl:
+        if "omzet" in str(item.get("description", "")).lower():
             return int(item["id"])
-    raise RuntimeError("no ledger with category 'Omzet' found; set eboekhouden.invoice.ledger_code")
+    if pnl:
+        return int(pnl[0]["id"])
+    logger.warning(
+        "no VW-category ledger found; available: %s",
+        [(i.get("code"), i.get("description"), i.get("category")) for i in items][:20],
+    )
+    raise RuntimeError("no revenue (VW) ledger found; set eboekhouden.invoice.ledger_code")
 
 
 def _invoice_body(params: CreateInvoiceParams, cfg: BillingConfig, ids: dict) -> dict:

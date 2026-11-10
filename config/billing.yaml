@@ -61,7 +61,7 @@ eboekhouden:
     date_format: "nl-short"            # "nl-short" = "29 sept" | "iso" = "2026-09-29"
     month_names: [jan, feb, mrt, apr, mei, jun, jul, aug, sept, okt, nov, dec]
     unit_name: "uren"                  # unit resolved via GET /v1/unit
-    ledger_code: ""                    # ledger resolved via GET /v1/ledger?code=; empty = first category Omzet
+    ledger_code: ""                    # ledger resolved via GET /v1/ledger?code=; empty = first VW-category ledger with "omzet" in the description
     send_prefer: "smtp"                # REST v1 can only email the invoice to the relation address (email block at creation); SMTP sends to the configured to/cc with the PDF (urlPdfFile)
 
 mail:
