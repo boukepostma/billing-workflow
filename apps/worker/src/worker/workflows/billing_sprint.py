@@ -302,11 +302,6 @@ class BillingSprintWorkflow:
         invoice_sent_at = workflow.now()
         result.invoice_sent_at = invoice_sent_at
         if not input.dry_run:
-            pdf = (
-                await call_activity("download-invoice-pdf", invoice.invoice_id, cfg)
-                if invoice.invoice_id
-                else None
-            )
             dates_iso = {
                 "sprint_start": sprint_start.isoformat(),
                 "sprint_end": sprint_end.isoformat(),
@@ -326,8 +321,6 @@ class BillingSprintWorkflow:
                     f"{dates['end']} (invoice date {invoice_date.isoformat()}).\n\n"
                     f"Payment term: {inv_cfg.payment_term_days} days. Reference: {ref}\n"
                 ),
-                attachment_name=f"invoice-{invoice.invoice_number}.pdf" if pdf else None,
-                attachment_pdf=pdf,
             )
             await call_activity("send-invoice", send_params, cfg)
 

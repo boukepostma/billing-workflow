@@ -82,8 +82,6 @@ class SendInvoiceParams(BaseModel):
     emailsjabloon: str = ""
     smtp_subject: str = ""
     smtp_body: str = ""
-    attachment_name: str | None = None
-    attachment_pdf: bytes | None = None
 
 
 class ReplyEmail(BaseModel):

@@ -84,11 +84,6 @@ async def mock_invoice_paid(invoice_number: str, cfg: BillingConfig) -> bool:
     return len(PAID_CHECKS) >= 2
 
 
-@workflows.activity(name="download-invoice-pdf")
-async def mock_download_pdf(invoice_id: str, cfg: BillingConfig) -> bytes | None:
-    return b"%PDF-1.4 mock"
-
-
 MOCK_ACTIVITIES = [
     mock_load_config,
     mock_send_mail,
@@ -96,7 +91,6 @@ MOCK_ACTIVITIES = [
     mock_create_invoice,
     mock_send_invoice,
     mock_invoice_paid,
-    mock_download_pdf,
 ]
 
 

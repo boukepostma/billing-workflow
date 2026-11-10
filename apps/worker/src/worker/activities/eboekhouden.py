@@ -226,26 +226,6 @@ async def invoice_paid(invoice_number: str, cfg: BillingConfig) -> bool:
 
 
 @workflows.activity(
-    name="download-invoice-pdf",
-    start_to_close_timeout=timedelta(minutes=2),
-    retry_policy_max_attempts=2,
-)
-async def download_invoice_pdf(invoice_id: str, cfg: BillingConfig) -> bytes | None:
-    try:
-        detail = await _get_json(cfg, f"/v1/invoice/{invoice_id}")
-        url = detail.get("urlPdfFile")
-        if not url:
-            return None
-        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
-            response = await client.get(url)
-            if response.status_code == 200 and response.content:
-                return response.content
-    except httpx.HTTPError:
-        return None
-    return None
-
-
-@workflows.activity(
     name="send-invoice",
     start_to_close_timeout=timedelta(minutes=2),
     retry_policy_max_attempts=3,
@@ -255,14 +235,28 @@ async def send_invoice(params: SendInvoiceParams, cfg: BillingConfig) -> str:
     inv = cfg.eboekhouden.invoice
     if inv.send_prefer == "eboekhouden":
         return "eboekhouden"
+    pdf: bytes | None = None
+    attachment_name = None
+    if params.invoice_id:
+        try:
+            detail = await _get_json(cfg, f"/v1/invoice/{params.invoice_id}")
+            url = detail.get("urlPdfFile")
+            if url:
+                async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+                    response = await client.get(url)
+                    if response.status_code == 200 and len(response.content) <= 1_500_000:
+                        pdf = response.content
+                        attachment_name = f"invoice-{params.invoice_number}.pdf"
+        except httpx.HTTPError:
+            pdf = None
     message = MailMessage(
         to=params.to,
         cc=params.cc,
         subject=params.smtp_subject,
         body=params.smtp_body,
         ref=params.ref,
-        attachment_name=params.attachment_name,
-        attachment_pdf=params.attachment_pdf,
+        attachment_name=attachment_name,
+        attachment_pdf=pdf,
     )
     await asyncio.to_thread(send_mail_message, message, cfg)
     return "smtp"
