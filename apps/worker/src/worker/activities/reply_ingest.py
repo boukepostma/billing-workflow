@@ -127,12 +127,14 @@ def _token_request_data(cfg: BillingConfig) -> dict:
             "client_secret": os.environ[graph.client_secret_env],
             "scope": graph.scope,
         }
-    return {
+    data = {
         "grant_type": "refresh_token",
         "client_id": graph.client_id,
         "refresh_token": os.environ[graph.refresh_token_env],
-        "scope": graph.scope,
     }
+    if graph.scope:
+        data["scope"] = graph.scope
+    return data
 
 
 async def _graph_token(cfg: BillingConfig) -> str:

@@ -107,7 +107,7 @@ class GraphCfg(BaseModel):
     mailbox: str = "me"                  # "me" for delegated tokens, else the mailbox UPN
     graph_base: str = "https://graph.microsoft.com/v1.0"
     login_base: str = "https://login.microsoftonline.com"
-    scope: str = "https://graph.microsoft.com/Mail.Read https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/User.Read offline_access"
+    scope: str = ""                     # empty = keep the refresh token's original consented scopes (avoids AADSTS70000)
 
 
 class IngestCfg(BaseModel):

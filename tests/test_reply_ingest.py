@@ -111,7 +111,7 @@ def test_graph_token_request_refresh_token(monkeypatch):
     assert data["grant_type"] == "refresh_token"
     assert data["refresh_token"] == "rt-123"
     assert data["client_id"] == "3e7b867b-bcf7-45a9-bf85-0e1a7cb8c1e1"
-    assert "offline_access" in data["scope"]
+    assert "scope" not in data  # refresh_token grant keeps original consented scopes
 
 
 def test_graph_token_request_client_secret(monkeypatch):
