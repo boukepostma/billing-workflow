@@ -55,9 +55,12 @@ def _merge_entries(
     return merged
 
 
-def _recipients(cfg: BillingConfig, template, default_to: list[str]) -> tuple[list[str], list[str]]:
+def _recipients(
+    cfg: BillingConfig, template, default_to: list[str], default_cc: list[str] | None = None
+) -> tuple[list[str], list[str]]:
     to = template.to or default_to
-    return to, template.cc
+    cc = template.cc or (default_cc or [])
+    return to, cc
 
 
 def fmt_date(d: date, cfg: BillingConfig) -> str:
@@ -106,7 +109,7 @@ def _timesheet_mail(cfg: BillingConfig, ref: str, sprint_start: date, sprint_end
     )
     dates = _fmt_dates(cfg, sprint_start, sprint_end)
     body = (
-        f"Hello,\n\n"
+        f"Hi,\n\n"
         f"Please find the timesheet for sprint {dates['start']} - {dates['end']} "
         f"({len(registered)} days, {sum(r.hours for r in registered):g} hours total):\n\n{lines}\n\n"
         f"Please reply to this mail to confirm the timesheet (e.g. \"confirmed\"). Reference: {ref}\n"
@@ -118,9 +121,9 @@ def _timesheet_mail(cfg: BillingConfig, ref: str, sprint_start: date, sprint_end
     )
 
 
-def _simple_mail(cfg: BillingConfig, template, default_to: list[str], ref: str,
+def _simple_mail(cfg: BillingConfig, template, default_to: list[str], default_cc: list[str] | None, ref: str,
                  sprint_start: date, sprint_end: date, body: str, extra: dict | None = None) -> MailMessage:
-    to, cc = _recipients(cfg, template, default_to)
+    to, cc = _recipients(cfg, template, default_to, default_cc)
     fmt = {
         "sprint_start": sprint_start.isoformat(),
         "sprint_end": sprint_end.isoformat(),
@@ -319,7 +322,7 @@ class BillingSprintWorkflow:
                 emailsjabloon=inv_cfg.emailsjabloon,
                 smtp_subject=cfg.mail.invoice.subject.format(**dates_iso),
                 smtp_body=(
-                    f"Hello,\n\nInvoice {invoice.invoice_number} for sprint {dates['start']} - "
+                    f"Hi,\n\nInvoice {invoice.invoice_number} for sprint {dates['start']} - "
                     f"{dates['end']} (invoice date {invoice_date.isoformat()}).\n\n"
                     f"Payment term: {inv_cfg.payment_term_days} days. Reference: {ref}\n"
                 ),
@@ -341,7 +344,7 @@ class BillingSprintWorkflow:
                     await call_activity(
                         "send-mail",
                         _simple_mail(
-                            cfg, cfg.mail.escalation, [cfg.owner.email], ref, sprint_start, sprint_end,
+                            cfg, cfg.mail.escalation, [cfg.owner.email], [], ref, sprint_start, sprint_end,
                             f"Invoice {invoice.invoice_number} is still unpaid after "
                             f"{result.payment_reminders_sent} reminders ({ref}).",
                             extra={"invoice_number": invoice.invoice_number or "-"},
@@ -351,7 +354,7 @@ class BillingSprintWorkflow:
                 await call_activity(
                     "send-mail",
                     _simple_mail(
-                        cfg, cfg.mail.payment_reminder, cfg.mail.invoice.to, ref, sprint_start, sprint_end,
+                        cfg, cfg.mail.payment_reminder, cfg.mail.invoice.to, cfg.mail.invoice.cc, ref, sprint_start, sprint_end,
                         f"Friendly reminder: invoice {invoice.invoice_number} "
                         f"(sprint {dates['start']} - {dates['end']}) is still unpaid. "
                         f"Payment term: {inv_cfg.payment_term_days} days.",
@@ -388,7 +391,7 @@ class BillingSprintWorkflow:
                     await call_activity(
                         "send-mail",
                         _simple_mail(
-                            cfg, cfg.mail.escalation, [cfg.owner.email], ref, sprint_start, sprint_end,
+                            cfg, cfg.mail.escalation, [cfg.owner.email], [], ref, sprint_start, sprint_end,
                             f"No hours confirmation received for {ref} within "
                             f"{cfg.timeouts.owner_confirm_days} days; still waiting.",
                         ),
@@ -398,7 +401,7 @@ class BillingSprintWorkflow:
                     await call_activity(
                         "send-mail",
                         _simple_mail(
-                            cfg, cfg.mail.owner_reminder, [cfg.owner.email], ref, sprint_start, sprint_end,
+                            cfg, cfg.mail.owner_reminder, [cfg.owner.email], [], ref, sprint_start, sprint_end,
                             f"Reminder: please confirm the proposed hour registration for {ref} "
                             f"by replying to the proposal mail.",
                         ),
@@ -423,7 +426,7 @@ class BillingSprintWorkflow:
                 await call_activity(
                     "send-mail",
                     _simple_mail(
-                        cfg, cfg.mail.escalation, [cfg.owner.email], ref, sprint_start, sprint_end,
+                        cfg, cfg.mail.escalation, [cfg.owner.email], [], ref, sprint_start, sprint_end,
                         f"No timesheet confirmation from the customer for {ref} within "
                         f"{cfg.timeouts.customer_confirm_days} days; still waiting.",
                     ),
@@ -442,7 +445,7 @@ class BillingSprintWorkflow:
                     await call_activity(
                         "send-mail",
                         _simple_mail(
-                            cfg, cfg.mail.timesheet_reminder, cfg.mail.timesheet.to, ref,
+                            cfg, cfg.mail.timesheet_reminder, cfg.mail.timesheet.to, cfg.mail.timesheet.cc, ref,
                             sprint_start, sprint_end,
                             f"Reminder: please confirm the timesheet for sprint "
                             f"{sprint_start.isoformat()} - {sprint_end.isoformat()} by replying "

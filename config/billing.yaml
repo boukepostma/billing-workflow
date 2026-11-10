@@ -83,7 +83,7 @@ mail:
     subject: "Timesheet for your approval - Sprint {sprint_start} - {sprint_end} [{ref}]"
   timesheet_reminder:
     to: []                           # defaults to timesheet.to
-    cc: []
+    cc: []                           # defaults to timesheet.cc
     subject: "Reminder: timesheet approval - Sprint {sprint_start} - {sprint_end} [{ref}]"
   invoice:
     to: ["timesheets@geeksoftconsulting.com"]
@@ -91,7 +91,7 @@ mail:
     subject: "Invoice {invoice_number} - Sprint {sprint_start} - {sprint_end} [{ref}]"
   payment_reminder:
     to: []                           # defaults to invoice.to
-    cc: []
+    cc: []                           # defaults to invoice.cc
     subject: "Payment reminder - invoice {invoice_number} [{ref}]"
   owner_reminder:
     to: []

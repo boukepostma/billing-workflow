@@ -4,6 +4,7 @@ from datetime import date, datetime, timezone
 import mistralai.workflows as workflows
 from mistralai.workflows.testing import create_test_worker
 
+from worker.activities.settings import load_billing_config
 from worker.workflows.billing_sprint import BillingSprintWorkflow, _merge_entries
 from worker.workflows.config_models import BillingConfig
 from worker.workflows.models import (
@@ -164,6 +165,11 @@ async def test_full_flow_with_signals(temporal_env):
         timesheet = next(m for m in SENT_MAILS if "Timesheet for your approval" in m.subject)
         assert timesheet.to == ["abhirup.ghosh1@tcs.com"]
         assert "pranab.mukherjee@tcs.com" in timesheet.cc
+        assert timesheet.body.startswith("Hi,\n")
+        reminder = next(m for m in SENT_MAILS if "Payment reminder" in m.subject)
+        assert reminder.to == ["timesheets@geeksoftconsulting.com"]
+        assert reminder.cc == ["vandana.c@geeksoft.eu"]
+        assert "2026-001" in reminder.subject
 
 
 async def test_owner_changes_hours_via_signal(temporal_env):
@@ -295,3 +301,16 @@ async def test_partial_reply_merges(temporal_env):
         assert ("2026-10-08", 6.0) in registered
         assert len(registered) == 9
         assert INVOICES[0].regels[0].aantal == 66.0  # 7x8 + 4 + 6
+
+
+def test_reminder_inherits_primary_cc():
+    from worker.workflows import billing_sprint as bs
+
+    cfg = load_billing_config()
+    msg = bs._simple_mail(
+        cfg, cfg.mail.timesheet_reminder, cfg.mail.timesheet.to, cfg.mail.timesheet.cc,
+        "SP-2026-10-20", date(2026, 10, 20), date(2026, 11, 9), "body",
+    )
+    assert msg.to == ["abhirup.ghosh1@tcs.com"]
+    assert msg.cc == ["pranab.mukherjee@tcs.com", "timesheets@geeksoftconsulting.com", "vandana.c@geeksoft.eu"]
+    assert "[SP-2026-10-20]" in msg.subject
