@@ -153,3 +153,17 @@ def test_coerce_list_unwraps_payload_wrapper_around_json_array():
     replies = coerce_list(payload, ReplyEmail)
     assert len(replies) == 1
     assert replies[0].sender == "a@guero.nl"
+
+
+def test_run_items_normalization():
+    from worker.activities.reply_ingest import _run_dict, _run_items
+
+    class Resp:
+        def __init__(self, result):
+            self.result = result
+
+    assert _run_items(Resp({"executions": [{"execution_id": "e1"}]})) == [{"execution_id": "e1"}]
+    assert _run_items(Resp([{"execution_id": "e2"}])) == [{"execution_id": "e2"}]
+    assert _run_items(Resp({"other": {"execution_id": "e3"}})) == [{"execution_id": "e3"}]
+    assert _run_dict({"a": 1}) == {"a": 1}
+    assert _run_dict("junk") is None

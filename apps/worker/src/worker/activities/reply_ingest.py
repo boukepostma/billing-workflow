@@ -249,15 +249,41 @@ def _mistral_client(cfg: BillingConfig):
     return get_mistral_client()
 
 
+def _run_items(runs) -> list:
+    result = getattr(runs, "result", None)
+    if result is None:
+        return []
+    if isinstance(result, list):
+        return result
+    if isinstance(result, dict):
+        for key in ("runs", "executions", "items", "data"):
+            if isinstance(result.get(key), list):
+                return result[key]
+        return [v for v in result.values() if isinstance(v, dict) or hasattr(v, "model_dump")]
+    return []
+
+
+def _run_dict(run) -> dict | None:
+    try:
+        if isinstance(run, dict):
+            return run
+        if hasattr(run, "model_dump"):
+            return run.model_dump()
+    except Exception:
+        return None
+    return None
+
+
 async def _find_running_execution(cfg: BillingConfig, sprint_start: date) -> str | None:
     client = _mistral_client(cfg)
     runs = await client.workflows.runs.list_runs_async(
         workflow_identifier=cfg.ingest.billing_workflow_name, page_size=50
     )
-    items = getattr(runs, "result", None) or []
-    for run in items:
-        data = run.model_dump() if hasattr(run, "model_dump") else dict(run)
-        if str(data.get("status", "")).upper() not in ("RUNNING",):
+    for run in _run_items(runs):
+        data = _run_dict(run)
+        if not data:
+            continue
+        if str(data.get("status", "")).upper() != "RUNNING":
             continue
         execution_id = data.get("execution_id") or data.get("id")
         if not execution_id:
