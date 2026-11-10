@@ -49,7 +49,7 @@ eboekhouden:
     emailsjabloon: "02. EN - Eerste Factuur"
     product_code: "UREN"
     hourly_rate: 105.0
-    vat_code: "HOOG"
+    vat_code: "HOOG_VERK_21"           # BTW code (REST VatCode enum)
     vat_label: "Btw hoog 21%"
     payment_term_days: 45
     check_after_days: 46               # verify payment 46 days after the invoice was sent
