@@ -112,7 +112,7 @@ ingest:
   transport: "graph"
   graph:
     auth_mode: "refresh_token"         # public-client app registration + stored refresh token
-    tenant_id: "39fa90e4-4d1f-43f3-a738-cc91f45ae7f0"  # Azure AD tenant of the app registration
+    tenant_id: "consumers"             # personal MSA (hotmail) tokens redeem at /consumers; code falls back consumers->common. Work/school GUID (e.g. 39fa90e4-4d1f-43f3-a738-cc91f45ae7f0) also works if the app lives there
     client_id: "3e7b867b-bcf7-45a9-bf85-0e1a7cb8c1e1"
     refresh_token_env: "MISTRAL_MS_GRAPH_REFRESH_TOKEN"  # workspace secret mistral_ms_graph_refresh_token
     mailbox: "bouke_postma@hotmail.com"  # UPN of the polled mailbox (for a personal account the UPN is the email address; "me" also works with a delegated token)

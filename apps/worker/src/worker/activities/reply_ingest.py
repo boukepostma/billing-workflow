@@ -109,8 +109,13 @@ def reply_from_outlook(item: dict, full: dict, ref_pattern: str) -> ReplyEmail:
     )
 
 
-def _graph_token_url(cfg: BillingConfig) -> str:
-    return f"{cfg.ingest.graph.login_base}/{cfg.ingest.graph.tenant_id}/oauth2/v2.0/token"
+def _token_tenant_candidates(cfg: BillingConfig) -> list[str]:
+    candidates = [cfg.ingest.graph.tenant_id, "consumers", "common"]
+    return list(dict.fromkeys(t for t in candidates if t))
+
+
+def _graph_token_url(cfg: BillingConfig, tenant: str) -> str:
+    return f"{cfg.ingest.graph.login_base}/{tenant}/oauth2/v2.0/token"
 
 
 def _token_request_data(cfg: BillingConfig) -> dict:
@@ -131,10 +136,24 @@ def _token_request_data(cfg: BillingConfig) -> dict:
 
 
 async def _graph_token(cfg: BillingConfig) -> str:
+    import logging
+
+    logger = logging.getLogger(__name__)
+    data = _token_request_data(cfg)
+    errors: list[str] = []
     async with httpx.AsyncClient(timeout=timedelta(seconds=30)) as client:
-        response = await client.post(_graph_token_url(cfg), data=_token_request_data(cfg))
-        response.raise_for_status()
-        return response.json()["access_token"]
+        for tenant in _token_tenant_candidates(cfg):
+            response = await client.post(_graph_token_url(cfg, tenant), data=data)
+            if response.status_code == 200:
+                return response.json()["access_token"]
+            try:
+                body = response.json()
+                detail = f"{body.get('error')} {body.get('error_description', '')[:200]}"
+            except ValueError:
+                detail = response.text[:200]
+            logger.warning("graph token via tenant %s failed: %s %s", tenant, response.status_code, detail)
+            errors.append(f"{tenant}: {response.status_code} {detail}")
+    raise RuntimeError("graph token failed for all tenants: " + " | ".join(errors))
 
 
 def _graph_client(cfg: BillingConfig, token: str) -> httpx.AsyncClient:

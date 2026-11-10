@@ -123,3 +123,17 @@ def test_graph_token_request_client_secret(monkeypatch):
     data = _token_request_data(cfg)
     assert data["grant_type"] == "client_credentials"
     assert data["client_secret"] == "cs-456"
+
+
+def test_token_tenant_candidates_fallback_order():
+    from worker.activities.reply_ingest import _token_tenant_candidates
+
+    cfg = BillingConfig()
+    cfg.ingest.graph.tenant_id = "39fa90e4-4d1f-43f3-a738-cc91f45ae7f0"
+    assert _token_tenant_candidates(cfg) == [
+        "39fa90e4-4d1f-43f3-a738-cc91f45ae7f0",
+        "consumers",
+        "common",
+    ]
+    cfg.ingest.graph.tenant_id = "consumers"
+    assert _token_tenant_candidates(cfg) == ["consumers", "common"]
