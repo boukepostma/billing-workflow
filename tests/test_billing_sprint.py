@@ -32,9 +32,15 @@ def make_config() -> BillingConfig:
     return load_billing_config()
 
 
+LOAD_CONFIG_OVERRIDES: list = []
+
+
 @workflows.activity(name="load-config")
 async def mock_load_config(overrides: dict | None = None) -> BillingConfig:
-    return make_config()
+    LOAD_CONFIG_OVERRIDES.append(overrides)
+    from worker.activities.settings import load_billing_config
+
+    return load_billing_config(overrides=overrides)
 
 
 @workflows.activity(name="send-mail")
