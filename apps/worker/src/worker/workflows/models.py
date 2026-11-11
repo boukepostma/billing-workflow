@@ -70,6 +70,7 @@ class InvoiceResult(BaseModel):
     invoice_number: str | None = None
     factuur_datum: date | None = None
     linked_hours: bool = False
+    pdf_url: str | None = None
 
 
 class SendInvoiceParams(BaseModel):
@@ -81,8 +82,6 @@ class SendInvoiceParams(BaseModel):
     emailsjabloon: str = ""
     smtp_subject: str = ""
     smtp_body: str = ""
-    attachment_name: str | None = None
-    attachment_pdf: bytes | None = None
 
 
 class ReplyEmail(BaseModel):

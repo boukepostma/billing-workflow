@@ -23,11 +23,14 @@ class CustomerCfg(BaseModel):
 
 
 class EbEndpoints(BaseModel):
-    hours: str = "/urenregistraties"
-    invoice: str = "/facturen"
-    outstanding: str = "/mutation/invoice/outstanding"
-    invoice_pdf: str = "/facturen/{invoice_id}/pdf"
-    send_invoice: str = "/facturen/{invoice_id}/send"
+    hours: str = "/v1/urenregistraties"          # not exposed by REST v1; used only if hours_via_api=true
+    invoice: str = "/v1/invoice"
+    outstanding: str = "/v1/mutation/invoice/outstanding"
+    relation: str = "/v1/relation"
+    invoicetemplate: str = "/v1/invoicetemplate"
+    emailtemplate: str = "/v1/emailtemplate"
+    unit: str = "/v1/unit"
+    ledger: str = "/v1/ledger"
 
 
 class InvoiceCfg(BaseModel):
@@ -35,8 +38,10 @@ class InvoiceCfg(BaseModel):
     emailsjabloon: str = "02. EN - Eerste Factuur"
     product_code: str = "UREN"
     hourly_rate: float = 105.0
-    vat_code: str = "HOOG"
+    vat_code: str = "HOOG_VERK_21"
     vat_label: str = "Btw hoog 21%"
+    unit_name: str = "uren"                  # resolved via GET /v1/unit (singular/plural)
+    ledger_code: str = ""                    # resolved via GET /v1/ledger?code=; empty = first category 'Omzet'
     payment_term_days: int = 45
     check_after_days: int = 46
     link_hours: bool = True
@@ -51,11 +56,13 @@ class InvoiceCfg(BaseModel):
             "jul", "aug", "sept", "okt", "nov", "dec",
         ]
     )
-    send_prefer: str = "eboekhouden"
+    send_prefer: str = "smtp"
 
 
 class EboekhoudenCfg(BaseModel):
-    base_url: str = "https://api.e-boekhouden.nl/v1"
+    base_url: str = "https://api.e-boekhouden.nl"
+    session_source: str = "billingwf"        # POST /v1/session source (max 10 chars)
+    hours_via_api: bool = False              # REST v1/SOAP expose no hours endpoint; hours ride on the invoice line
     token_env: str = "EBOEKHOUDEN_API_TOKEN"
     relation_code: str = "GEEKSOFT"
     medewerker: str = "Bouke Postma"
@@ -98,16 +105,27 @@ class TimeoutsCfg(BaseModel):
     max_payment_reminders: int = 30
 
 
+class GraphCfg(BaseModel):
+    auth_mode: str = "refresh_token"     # "refresh_token" (public client) | "client_secret" (confidential client)
+    tenant_id: str = "common"            # "common" works for delegated refresh tokens
+    client_id: str = ""                  # app registration client ID (not secret)
+    client_secret_env: str = "MSGRAPH_CLIENT_SECRET"      # used when auth_mode=client_secret
+    refresh_token_env: str = "MISTRAL_MS_GRAPH_REFRESH_TOKEN"  # used when auth_mode=refresh_token
+    mailbox: str = "me"                  # "me" for delegated tokens, else the mailbox UPN
+    graph_base: str = "https://graph.microsoft.com/v1.0"
+    login_base: str = "https://login.microsoftonline.com"
+    scope: str = ""                     # empty = keep the refresh token's original consented scopes (avoids AADSTS70000)
+
+
 class IngestCfg(BaseModel):
-    transport: str = "outlook"
+    transport: str = "graph"             # direct MS Graph API (client credentials)
+    graph: GraphCfg = Field(default_factory=GraphCfg)
     search_folder: str = "inbox"
     processed_folder: str = "archive"
     poll_query: str = "SP-"
     poll_limit: int = 50
     lookback_days: int = 30
     ref_pattern: str = r"SP-\d{4}-\d{2}-\d{2}"
-    mistral_api_base: str = "https://api.mistral.ai"
-    mistral_api_key_env: str = "MISTRAL_API_KEY"
     billing_workflow_name: str = "billing-sprint"
 
 

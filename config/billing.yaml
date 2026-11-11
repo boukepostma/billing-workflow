@@ -19,32 +19,37 @@ sprint:
 
 owner:
   name: "Bouke Postma"
-  email: "bouke@guero.nl"         # receives hour proposals, reminders, escalations
+  email: "admin@guero.nl"        # receives hour proposals, reminders, escalations
   confirm_domains: ["guero.nl"]   # reply senders allowed to confirm hours
 
 customer:
   confirm_domains: ["tcs.com"]    # any sender on these domains may confirm the timesheet
 
 eboekhouden:
-  base_url: "https://api.e-boekhouden.nl/v1"
+  base_url: "https://api.e-boekhouden.nl"
   token_env: "EBOEKHOUDEN_API_TOKEN"   # workspace secret (Beheer > Inrichting > Koppelingen > API)
+  session_source: "billingwf"          # POST /v1/session source (max 10 chars)
+  hours_via_api: false                 # REST v1 and SOAP expose no urenregistratie endpoint (verified against the live OpenAPI spec and SOAP WSDL); hours are carried on the invoice line instead
   relation_code: "GEEKSOFT"            # debiteur/customer code
   medewerker: "Bouke Postma"
   project: "Project for Tata Consultancy Services Netherlands"
   kilometers: 0                        # km gereden per registration
   hours_description: "Consultancy hours"
   endpoints:
-    hours: "/urenregistraties"
-    invoice: "/facturen"
-    outstanding: "/mutation/invoice/outstanding"
-    invoice_pdf: "/facturen/{invoice_id}/pdf"
-    send_invoice: "/facturen/{invoice_id}/send"   # used when send_prefer=eboekhouden; SMTP is the fallback
+    hours: "/v1/urenregistraties"
+    invoice: "/v1/invoice"
+    outstanding: "/v1/mutation/invoice/outstanding"
+    relation: "/v1/relation"
+    invoicetemplate: "/v1/invoicetemplate"
+    emailtemplate: "/v1/emailtemplate"
+    unit: "/v1/unit"
+    ledger: "/v1/ledger"
   invoice:
     factuursjabloon: "EN - Simpel met aantallen"
     emailsjabloon: "02. EN - Eerste Factuur"
     product_code: "UREN"
     hourly_rate: 105.0
-    vat_code: "HOOG"
+    vat_code: "HOOG_VERK_21"           # BTW code (REST VatCode enum)
     vat_label: "Btw hoog 21%"
     payment_term_days: 45
     check_after_days: 46               # verify payment 46 days after the invoice was sent
@@ -55,7 +60,9 @@ eboekhouden:
     line_omschrijving_template: "Sprint {start} - {end}"
     date_format: "nl-short"            # "nl-short" = "29 sept" | "iso" = "2026-09-29"
     month_names: [jan, feb, mrt, apr, mei, jun, jul, aug, sept, okt, nov, dec]
-    send_prefer: "eboekhouden"         # try e-Boekhouden mail send first, fall back to SMTP
+    unit_name: "uren"                  # unit resolved via GET /v1/unit
+    ledger_code: ""                    # ledger resolved via GET /v1/ledger?code=; empty = first VW-category ledger with "omzet" in the description
+    send_prefer: "smtp"                # REST v1 can only email the invoice to the relation address (email block at creation); SMTP sends to the configured to/cc with the PDF (urlPdfFile)
 
 mail:
   # SMTP (Proton Mail, e.g. smtp.protonmail.ch:587 STARTTLS). Values come from
@@ -64,7 +71,7 @@ mail:
   port_env: "SMTP_PORT"
   user_env: "SMTP_USER"
   password_env: "SMTP_PASSWORD"
-  from_env: "SMTP_FROM"              # e.g. bouke@guero.nl
+  from_env: "SMTP_FROM"              # e.g. admin@guero.nl
   starttls: true
   proposal:
     to: []                           # defaults to owner.email
@@ -76,7 +83,7 @@ mail:
     subject: "Timesheet for your approval - Sprint {sprint_start} - {sprint_end} [{ref}]"
   timesheet_reminder:
     to: []                           # defaults to timesheet.to
-    cc: []
+    cc: []                           # defaults to timesheet.cc
     subject: "Reminder: timesheet approval - Sprint {sprint_start} - {sprint_end} [{ref}]"
   invoice:
     to: ["timesheets@geeksoftconsulting.com"]
@@ -84,7 +91,7 @@ mail:
     subject: "Invoice {invoice_number} - Sprint {sprint_start} - {sprint_end} [{ref}]"
   payment_reminder:
     to: []                           # defaults to invoice.to
-    cc: []
+    cc: []                           # defaults to invoice.cc
     subject: "Payment reminder - invoice {invoice_number} [{ref}]"
   owner_reminder:
     to: []
@@ -106,15 +113,20 @@ timeouts:
 
 ingest:
   # Replies reach the running billing-sprint execution via the mail-reply-ingest
-  # workflow, which polls the Outlook connector (Proton auto-forwards to Outlook)
-  # and signals the execution by the sprint ref code in the subject.
-  transport: "outlook"               # connector name is hardcoded in worker/workflows/connector_slots.py
+  # workflow, which polls the Outlook mailbox through the Microsoft Graph API
+  # using an app registration (client credentials). Proton auto-forwards to
+  # this mailbox. The refresh token is a workspace secret (env var below).
+  transport: "graph"
+  graph:
+    auth_mode: "refresh_token"         # public-client app registration + stored refresh token
+    tenant_id: "consumers"             # personal MSA (hotmail) tokens redeem at /consumers; code falls back consumers->common. Work/school GUID (e.g. 39fa90e4-4d1f-43f3-a738-cc91f45ae7f0) also works if the app lives there
+    client_id: "3e7b867b-bcf7-45a9-bf85-0e1a7cb8c1e1"
+    refresh_token_env: "MISTRAL_MS_GRAPH_REFRESH_TOKEN"  # workspace secret mistral_ms_graph_refresh_token
+    mailbox: "bouke_postma@hotmail.com"  # UPN of the polled mailbox (for a personal account the UPN is the email address; "me" also works with a delegated token)
   search_folder: "inbox"
-  processed_folder: "archive"        # processed replies are moved here
+  processed_folder: "archive"          # processed replies are moved here (needs Mail.ReadWrite)
   poll_query: "SP-"
   poll_limit: 50
   lookback_days: 30
   ref_pattern: 'SP-\d{4}-\d{2}-\d{2}'
-  mistral_api_base: "https://api.mistral.ai"
-  mistral_api_key_env: "MISTRAL_API_KEY"   # injected into the managed deployment
-  billing_workflow_name: "billing-sprint"
+  billing_workflow_name: "billing-sprint"   # dispatch uses the deployment service account via the SDK client

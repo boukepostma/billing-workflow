@@ -41,5 +41,18 @@ def load_billing_config(path: Path | None = None, overrides: dict[str, Any] | No
 
 
 @workflows.activity(name="load-config")
-async def load_config(overrides: dict[str, Any] | None = None) -> BillingConfig:
-    return load_billing_config(overrides=overrides)
+async def load_config(overrides: dict[str, Any] | None = None) -> str:
+    import logging
+
+    cfg = load_billing_config(overrides=overrides)
+    logging.getLogger(__name__).info(
+        "loaded config path=%s anchor=%s overrides=%s timesheet.to=%s timesheet.cc=%s invoice.to=%s invoice.cc=%s",
+        _default_config_path(),
+        cfg.sprint.anchor_tuesday,
+        bool(overrides),
+        cfg.mail.timesheet.to,
+        cfg.mail.timesheet.cc,
+        cfg.mail.invoice.to,
+        cfg.mail.invoice.cc,
+    )
+    return cfg.model_dump_json()

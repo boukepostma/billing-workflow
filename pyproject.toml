@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "End-to-end sprint billing workflow on Mistral AI Workflows (e-Boekhouden + Proton Mail SMTP)"
 requires-python = ">=3.12"
 dependencies = [
-    "mistralai-workflows[mistralai]",
+    "mistralai-workflows",
     "pydantic>=2.10",
     "httpx>=0.28",
     "pyyaml>=6.0",

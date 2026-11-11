@@ -1,3 +1,12 @@
+import json
+import os
+import re
+from datetime import date, datetime, timedelta, timezone
+from email.utils import parseaddr, parsedate_to_datetime
+
+import httpx
+
+import html as html_lib
 import os
 import re
 from datetime import date, datetime, timedelta, timezone
@@ -6,12 +15,9 @@ from email.utils import parseaddr, parsedate_to_datetime
 import httpx
 
 import mistralai.workflows as workflows
-from mistralai.workflows import Depends
-from mistralai.workflows.plugins.mistralai.connectors import ToolCallClient
 
 from worker.workflows import sprint_calendar as cal
 from worker.workflows.config_models import BillingConfig
-from worker.workflows.connector_slots import outlook_connector
 from worker.workflows.models import (
     ConfirmHours,
     CustomerConfirmation,
@@ -60,6 +66,44 @@ def is_confirm_text(body: str) -> bool:
     return any(word in lowered for word in CONFIRM_WORDS)
 
 
+QUOTE_START_RE = re.compile(
+    r"(original message|forwarded message|begin forwarded message|^on .+ wrote:$)", re.IGNORECASE
+)
+
+
+def strip_quoted_text(body: str) -> str:
+    lines = body.splitlines()
+    out: list[str] = []
+    for i, line in enumerate(lines):
+        if QUOTE_START_RE.search(line) or line.lstrip().startswith(">"):
+            break
+        if line.startswith("From:") and i + 1 < len(lines) and lines[i + 1].startswith("Sent:"):
+            break
+        out.append(line)
+    return "\n".join(out)
+
+
+def owner_decision(ref: str, sender: str, body: str) -> tuple[str, dict]:
+    new_body = strip_quoted_text(body)
+    entries = parse_entries(new_body)
+    confirmed = is_confirm_text(new_body) or not new_body.strip()
+    if not confirmed and entries is None:
+        return "cancel", {"reason": new_body[:500]}
+    payload = ConfirmHours(
+        ref=ref, sender=sender, entries=entries, note=new_body[:500]
+    ).model_dump(mode="json")
+    return "confirm_hours", payload
+
+
+def customer_decision(ref: str, sender: str, received_at: datetime, body: str) -> dict:
+    new_body = strip_quoted_text(body)
+    lowered = new_body.lower()
+    confirmed = not any(word in lowered for word in REJECT_WORDS)
+    return CustomerConfirmation(
+        ref=ref, sender=sender, confirmed=confirmed, received_at=received_at
+    ).model_dump(mode="json")
+
+
 def _pick(payload: dict, *keys: str) -> str:
     for key in keys:
         value = payload.get(key)
@@ -103,97 +147,227 @@ def reply_from_outlook(item: dict, full: dict, ref_pattern: str) -> ReplyEmail:
     )
 
 
+def _token_tenant_candidates(cfg: BillingConfig) -> list[str]:
+    candidates = [cfg.ingest.graph.tenant_id, "consumers", "common"]
+    return list(dict.fromkeys(t for t in candidates if t))
+
+
+def _graph_token_url(cfg: BillingConfig, tenant: str) -> str:
+    return f"{cfg.ingest.graph.login_base}/{tenant}/oauth2/v2.0/token"
+
+
+def _token_request_data(cfg: BillingConfig) -> dict:
+    graph = cfg.ingest.graph
+    if graph.auth_mode == "client_secret":
+        return {
+            "grant_type": "client_credentials",
+            "client_id": graph.client_id,
+            "client_secret": os.environ[graph.client_secret_env],
+            "scope": graph.scope,
+        }
+    data = {
+        "grant_type": "refresh_token",
+        "client_id": graph.client_id,
+        "refresh_token": os.environ[graph.refresh_token_env],
+    }
+    if graph.scope:
+        data["scope"] = graph.scope
+    return data
+
+
+async def _graph_token(cfg: BillingConfig) -> str:
+    import logging
+
+    logger = logging.getLogger(__name__)
+    data = _token_request_data(cfg)
+    errors: list[str] = []
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        for tenant in _token_tenant_candidates(cfg):
+            response = await client.post(_graph_token_url(cfg, tenant), data=data)
+            if response.status_code == 200:
+                return response.json()["access_token"]
+            try:
+                body = response.json()
+                detail = f"{body.get('error')} {body.get('error_description', '')[:200]}"
+            except ValueError:
+                detail = response.text[:200]
+            logger.warning("graph token via tenant %s failed: %s %s", tenant, response.status_code, detail)
+            errors.append(f"{tenant}: {response.status_code} {detail}")
+    raise RuntimeError("graph token failed for all tenants: " + " | ".join(errors))
+
+
+def _graph_client(cfg: BillingConfig, token: str) -> httpx.AsyncClient:
+    return httpx.AsyncClient(
+        base_url=cfg.ingest.graph.graph_base,
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=30.0,
+    )
+
+
+def _strip_html(content: str) -> str:
+    text = re.sub(r"<[^>]+>", "\n", content or "")
+    return html_lib.unescape(text)
+
+
+def reply_from_graph(item: dict, body: str, ref_pattern: str) -> ReplyEmail:
+    sender_info = (item.get("from") or {}).get("emailAddress") or {}
+    sender = sender_info.get("address") or ""
+    subject = item.get("subject") or ""
+    received = _parse_dt(item.get("receivedDateTime") or "")
+    if extract_ref(subject, ref_pattern) is None and extract_ref(body, ref_pattern):
+        subject = f"{subject} {extract_ref(body, ref_pattern)}"
+    return ReplyEmail(
+        message_id=item.get("id") or "",
+        mailbox_seq=item.get("id") or "",
+        sender=sender,
+        subject=subject,
+        date=received,
+        body=body,
+    )
+
+
 @workflows.activity(
     name="poll-replies",
     start_to_close_timeout=timedelta(minutes=2),
     retry_policy_max_attempts=3,
     retry_policy_backoff_coefficient=2.0,
 )
-async def poll_replies(
-    cfg: BillingConfig,
-    lookback_days: int,
-    outlook: ToolCallClient = Depends(outlook_connector),
-) -> list[ReplyEmail]:
-    after = (datetime.now(timezone.utc) - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
-    result = await outlook.call_tool(
-        "search_outlook",
-        {
-            "query": cfg.ingest.poll_query,
-            "is_read": False,
-            "folder_id": cfg.ingest.search_folder,
-            "after": after,
-            "limit": cfg.ingest.poll_limit,
-        },
-    )
-    items = result.get("results", []) if isinstance(result, dict) else result
-    replies: list[ReplyEmail] = []
-    for item in items or []:
-        message_id = _pick(item.get("metadata", {}), "message_id")
-        if not message_id:
-            continue
-        full = await outlook.call_tool("open_outlook_email", {"message_id": message_id})
-        full_dict = full if isinstance(full, dict) else {"body": str(full)}
-        replies.append(reply_from_outlook(item, full_dict, cfg.ingest.ref_pattern))
-    return replies
+async def poll_replies(cfg: BillingConfig, lookback_days: int) -> str:
+    token = await _graph_token(cfg)
+    since = (datetime.now(timezone.utc) - timedelta(days=lookback_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    async with _graph_client(cfg, token) as client:
+        response = await client.get(
+            f"/users/{cfg.ingest.graph.mailbox}/mailFolders/{cfg.ingest.search_folder}/messages",
+            params={
+                "$filter": f"isRead eq false and receivedDateTime ge {since}",
+                "$top": cfg.ingest.poll_limit,
+                "$select": "id,subject,from,receivedDateTime,bodyPreview",
+                "$orderby": "receivedDateTime desc",
+            },
+        )
+        response.raise_for_status()
+        items = response.json().get("value", [])
+        replies: list[ReplyEmail] = []
+        for item in items:
+            body = item.get("bodyPreview") or ""
+            if extract_ref(item.get("subject") or "", cfg.ingest.ref_pattern) is None and extract_ref(body, cfg.ingest.ref_pattern) is None:
+                continue
+            full = await client.get(f"/users/{cfg.ingest.graph.mailbox}/messages/{item['id']}", params={"$select": "id,body"})
+            body_content = ""
+            if full.status_code == 200:
+                body_content = _strip_html((full.json().get("body") or {}).get("content") or "")
+            replies.append(reply_from_graph(item, body_content or body, cfg.ingest.ref_pattern))
+    return json.dumps([r.model_dump(mode="json") for r in replies])
 
 
 @workflows.activity(name="mark-replies-processed", start_to_close_timeout=timedelta(minutes=1))
-async def mark_replies_processed(
-    cfg: BillingConfig,
-    message_ids: list[str],
-    outlook: ToolCallClient = Depends(outlook_connector),
-) -> None:
-    for message_id in message_ids:
-        await outlook.call_tool(
-            "move_email",
-            {"message_id": message_id, "destination_folder_id": cfg.ingest.processed_folder},
-        )
+async def mark_replies_processed(cfg: BillingConfig, message_ids: list[str]) -> None:
+    if not message_ids:
+        return
+    token = await _graph_token(cfg)
+    async with _graph_client(cfg, token) as client:
+        for message_id in message_ids:
+            try:
+                response = await client.post(
+                    f"/users/{cfg.ingest.graph.mailbox}/messages/{message_id}/move",
+                    json={"destinationFolderId": cfg.ingest.processed_folder},
+                )
+                if response.status_code >= 300:
+                    await client.patch(
+                        f"/users/{cfg.ingest.graph.mailbox}/messages/{message_id}",
+                        json={"isRead": True},
+                    )
+            except httpx.HTTPError:
+                continue
 
 
-def _api_client(cfg: BillingConfig) -> httpx.AsyncClient:
-    api_key = os.environ[cfg.ingest.mistral_api_key_env]
-    return httpx.AsyncClient(
-        base_url=cfg.ingest.mistral_api_base,
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        timeout=timedelta(seconds=30),
-    )
+def _mistral_client(cfg: BillingConfig):
+    from mistralai.workflows.client import get_mistral_client
+
+    return get_mistral_client()
+
+
+def _run_items(runs) -> list:
+    result = getattr(runs, "result", None)
+    if result is None:
+        return []
+    if hasattr(result, "model_dump"):
+        result = result.model_dump()
+    if isinstance(result, list):
+        return result
+    if isinstance(result, dict):
+        for key in ("runs", "executions", "items", "data"):
+            if isinstance(result.get(key), list):
+                return result[key]
+        return [v for v in result.values() if isinstance(v, dict) or hasattr(v, "model_dump")]
+    return []
+
+
+def _run_dict(run) -> dict | None:
+    try:
+        if isinstance(run, dict):
+            return run
+        if hasattr(run, "model_dump"):
+            return run.model_dump()
+    except Exception:
+        return None
+    return None
 
 
 async def _find_running_execution(cfg: BillingConfig, sprint_start: date) -> str | None:
-    async with _api_client(cfg) as client:
-        response = await client.get("/v1/workflows/executions")
-        response.raise_for_status()
-        payload = response.json()
-        executions = payload.get("executions", payload if isinstance(payload, list) else [])
-        for execution in executions:
-            if execution.get("workflow_name") != cfg.ingest.billing_workflow_name:
-                continue
-            if execution.get("status") not in ("RUNNING", "running", None):
-                continue
-            execution_id = execution.get("execution_id") or execution.get("id")
-            if not execution_id:
-                continue
-            query = await client.post(
-                f"/v1/workflows/executions/{execution_id}/queries",
-                json={"name": "state"},
+    import json as _json
+    import logging
+
+    logger = logging.getLogger(__name__)
+    client = _mistral_client(cfg)
+    runs = await client.workflows.runs.list_runs_async(
+        workflow_identifier=cfg.ingest.billing_workflow_name, page_size=50
+    )
+    items = _run_items(runs)
+    logger.warning("find_running_execution: %d runs for %s", len(items), cfg.ingest.billing_workflow_name)
+    for run in items:
+        data = _run_dict(run)
+        if not data:
+            logger.warning("find_running_execution: unparseable run item: %r", str(run)[:120])
+            continue
+        status = str(data.get("status", "")).upper()
+        execution_id = data.get("execution_id") or data.get("id")
+        logger.warning(
+            "find_running_execution: run %s status=%s keys=%s", execution_id, status, sorted(data.keys())
+        )
+        if status != "RUNNING" or not execution_id:
+            continue
+        try:
+            query = await client.workflows.executions.query_workflow_execution_async(
+                execution_id=str(execution_id), name="state"
             )
-            if query.status_code != 200:
-                continue
-            state = query.json()
-            result = state.get("result", state)
-            state_start = result.get("sprint_start") if isinstance(result, dict) else None
-            if state_start == sprint_start.isoformat():
-                return str(execution_id)
+        except Exception as exc:
+            logger.warning("find_running_execution: query %s failed: %s", execution_id, exc)
+            continue
+        payload = getattr(query, "result", None)
+        if isinstance(payload, str):
+            try:
+                payload = _json.loads(payload)
+            except ValueError:
+                pass
+        if hasattr(payload, "model_dump"):
+            payload = payload.model_dump()
+        logger.warning(
+            "find_running_execution: query %s payload_type=%s payload=%s",
+            execution_id,
+            type(payload).__name__,
+            str(payload)[:200],
+        )
+        if isinstance(payload, dict) and payload.get("sprint_start") == sprint_start.isoformat():
+            return str(execution_id)
     return None
 
 
 async def _signal_execution(cfg: BillingConfig, execution_id: str, name: str, payload: dict) -> None:
-    async with _api_client(cfg) as client:
-        response = await client.post(
-            f"/v1/workflows/executions/{execution_id}/signals",
-            json={"name": name, "input": payload},
-        )
-        response.raise_for_status()
+    client = _mistral_client(cfg)
+    await client.workflows.executions.signal_workflow_execution_async(
+        execution_id=execution_id, name=name, input=payload
+    )
 
 
 @workflows.activity(
@@ -202,7 +376,7 @@ async def _signal_execution(cfg: BillingConfig, execution_id: str, name: str, pa
     retry_policy_max_attempts=3,
     retry_policy_backoff_coefficient=2.0,
 )
-async def dispatch_reply(reply: ReplyEmail, cfg: BillingConfig, dry_run: bool = False) -> IngestOutcome:
+async def dispatch_reply(reply: ReplyEmail, cfg: BillingConfig, dry_run: bool = False) -> str:
     kind = classify_sender(reply.sender, cfg)
     ref = extract_ref(f"{reply.subject}\n{reply.body}", cfg.ingest.ref_pattern)
     if kind == "unknown":
@@ -211,22 +385,9 @@ async def dispatch_reply(reply: ReplyEmail, cfg: BillingConfig, dry_run: bool = 
         return IngestOutcome(message_id=reply.message_id, outcome="ignored_no_ref", detail=reply.subject)
     sprint_start = cal.parse_ref(ref)
     if kind == "owner":
-        entries = parse_entries(reply.body)
-        if not is_confirm_text(reply.body) and entries is None:
-            payload = {"reason": reply.body[:500]}
-            signal_name = "cancel"
-        else:
-            payload = ConfirmHours(
-                ref=ref, sender=reply.sender, entries=entries, note=reply.body[:500]
-            ).model_dump(mode="json")
-            signal_name = "confirm_hours"
+        signal_name, payload = owner_decision(ref, reply.sender, reply.body)
     else:
-        payload = CustomerConfirmation(
-            ref=ref,
-            sender=reply.sender,
-            confirmed=is_confirm_text(reply.body),
-            received_at=reply.date,
-        ).model_dump(mode="json")
+        payload = customer_decision(ref, reply.sender, reply.date, reply.body)
         signal_name = "customer_confirmation"
     execution_id = await _find_running_execution(cfg, sprint_start)
     if execution_id is None:
@@ -239,4 +400,4 @@ async def dispatch_reply(reply: ReplyEmail, cfg: BillingConfig, dry_run: bool = 
         message_id=reply.message_id,
         outcome="signalled_dry_run" if dry_run else "signalled",
         detail=f"{signal_name} -> {execution_id}",
-    )
+    ).model_dump_json()
