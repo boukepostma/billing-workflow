@@ -130,3 +130,4 @@ ingest:
   lookback_days: 30
   ref_pattern: 'SP-\d{4}-\d{2}-\d{2}'
   billing_workflow_name: "billing-sprint"   # dispatch uses the deployment service account via the SDK client
+  trusted_forwarder_domains: ["guero.nl"]  # any @guero.nl forward is unwrapped; the quoted From: decides owner vs customer

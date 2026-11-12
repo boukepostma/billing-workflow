@@ -71,16 +71,38 @@ QUOTE_START_RE = re.compile(
 )
 
 
-def strip_quoted_text(body: str) -> str:
+def _split_quote(body: str) -> tuple[str, str]:
     lines = body.splitlines()
     out: list[str] = []
     for i, line in enumerate(lines):
         if QUOTE_START_RE.search(line) or line.lstrip().startswith(">"):
-            break
+            return "\n".join(out), "\n".join(lines[i:])
         if line.startswith("From:") and i + 1 < len(lines) and lines[i + 1].startswith("Sent:"):
-            break
+            return "\n".join(out), "\n".join(lines[i:])
         out.append(line)
-    return "\n".join(out)
+    return body, ""
+
+
+def strip_quoted_text(body: str) -> str:
+    return _split_quote(body)[0]
+
+
+FORWARDED_FROM_RE = re.compile(r"^From:\s*(?:[^<]*<)?([\w.+-]+@[\w.-]+)", re.IGNORECASE | re.MULTILINE)
+
+
+def extract_forwarded_from(body: str) -> str | None:
+    quoted = _split_quote(body)[1]
+    match = FORWARDED_FROM_RE.search(quoted)
+    return match.group(1) if match else None
+
+
+def effective_sender(sender: str, body: str, cfg: BillingConfig) -> str:
+    trusted = {d.lower() for d in cfg.ingest.trusted_forwarder_domains}
+    if sender_domain(sender) in trusted:
+        forwarded = extract_forwarded_from(body)
+        if forwarded:
+            return forwarded
+    return sender
 
 
 def owner_decision(ref: str, sender: str, body: str) -> tuple[str, dict]:
@@ -377,7 +399,8 @@ async def _signal_execution(cfg: BillingConfig, execution_id: str, name: str, pa
     retry_policy_backoff_coefficient=2.0,
 )
 async def dispatch_reply(reply: ReplyEmail, cfg: BillingConfig, dry_run: bool = False) -> str:
-    kind = classify_sender(reply.sender, cfg)
+    sender = effective_sender(reply.sender, reply.body, cfg)
+    kind = classify_sender(sender, cfg)
     ref = extract_ref(f"{reply.subject}\n{reply.body}", cfg.ingest.ref_pattern)
     if kind == "unknown":
         return IngestOutcome(message_id=reply.message_id, outcome="ignored_sender", detail=reply.sender)
@@ -385,9 +408,9 @@ async def dispatch_reply(reply: ReplyEmail, cfg: BillingConfig, dry_run: bool = 
         return IngestOutcome(message_id=reply.message_id, outcome="ignored_no_ref", detail=reply.subject)
     sprint_start = cal.parse_ref(ref)
     if kind == "owner":
-        signal_name, payload = owner_decision(ref, reply.sender, reply.body)
+        signal_name, payload = owner_decision(ref, sender, reply.body)
     else:
-        payload = customer_decision(ref, reply.sender, reply.date, reply.body)
+        payload = customer_decision(ref, sender, reply.date, reply.body)
         signal_name = "customer_confirmation"
     execution_id = await _find_running_execution(cfg, sprint_start)
     if execution_id is None:

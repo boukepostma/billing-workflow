@@ -127,6 +127,9 @@ class IngestCfg(BaseModel):
     lookback_days: int = 30
     ref_pattern: str = r"SP-\d{4}-\d{2}-\d{2}"
     billing_workflow_name: str = "billing-sprint"
+    trusted_forwarder_domains: list[str] = Field(
+        default_factory=lambda: ["guero.nl"]
+    )  # forwards from these domains are unwrapped: the quoted From: decides owner/customer
 
 
 class BillingConfig(BaseModel):

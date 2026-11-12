@@ -318,3 +318,57 @@ def test_overrides_deep_merge():
     assert cfg.sprint.hours_per_day == 6.0
     assert cfg.sprint.anchor_tuesday is not None             # untouched
     assert cfg.eboekhouden.relation_code == "GEEKSOFT"       # untouched
+
+
+CUSTOMER_FORWARD_BODY = """Approved, thanks!
+
+-------- Forwarded message --------
+From: Abhirup Ghosh <abhirup.ghosh1@tcs.com>
+Sent: Thursday, 12 November 2026 14:02
+To: admin@guero.nl
+Subject: RE: Timesheet for your approval - Sprint 2026-10-20 - 2026-11-09 [SP-2026-10-20]
+
+Hi,
+
+Please find the timesheet ...
+"""
+
+
+def test_effective_sender_unwraps_guero_forward():
+    from worker.activities.settings import load_billing_config
+    from worker.activities.reply_ingest import effective_sender, extract_forwarded_from
+
+    cfg = load_billing_config()
+    assert extract_forwarded_from(CUSTOMER_FORWARD_BODY) == "abhirup.ghosh1@tcs.com"
+    # any @guero.nl address is a trusted forwarder, not just admin@
+    assert effective_sender("admin@guero.nl", CUSTOMER_FORWARD_BODY, cfg) == "abhirup.ghosh1@tcs.com"
+    assert effective_sender("bouke@guero.nl", CUSTOMER_FORWARD_BODY, cfg) == "abhirup.ghosh1@tcs.com"
+    # untrusted forwarder is NOT unwrapped
+    assert effective_sender("mallory@example.com", CUSTOMER_FORWARD_BODY, cfg) == "mallory@example.com"
+    # non-forward from guero.nl stays owner
+    assert effective_sender("admin@guero.nl", "confirm please", cfg) == "admin@guero.nl"
+
+
+def test_classify_unwrapped_customer_forward():
+    from worker.activities.settings import load_billing_config
+    from worker.activities.reply_ingest import classify_sender, effective_sender
+
+    cfg = load_billing_config()
+    eff = effective_sender("admin@guero.nl", CUSTOMER_FORWARD_BODY, cfg)
+    assert classify_sender(eff, cfg) == "customer"
+    assert classify_sender("admin@guero.nl", cfg) == "owner"
+
+
+def test_customer_decision_uses_unwrapped_sender():
+    from datetime import datetime, timezone
+
+    from worker.activities.settings import load_billing_config
+    from worker.activities.reply_ingest import customer_decision, effective_sender
+
+    cfg = load_billing_config()
+    sender = effective_sender("admin@guero.nl", CUSTOMER_FORWARD_BODY, cfg)
+    payload = customer_decision(
+        "SP-2026-10-20", sender, datetime(2026, 11, 12, 14, 5, tzinfo=timezone.utc), CUSTOMER_FORWARD_BODY
+    )
+    assert payload["sender"] == "abhirup.ghosh1@tcs.com"
+    assert payload["confirmed"] is True
