@@ -372,3 +372,11 @@ def test_customer_decision_uses_unwrapped_sender():
     )
     assert payload["sender"] == "abhirup.ghosh1@tcs.com"
     assert payload["confirmed"] is True
+
+
+def test_legacy_vat_code_normalized():
+    from worker.activities.eboekhouden import _normalize_vat_code
+
+    assert _normalize_vat_code("HOOG") == "HOOG_VERK_21"
+    assert _normalize_vat_code("LAAG") == "LAAG_VERK_9"
+    assert _normalize_vat_code("HOOG_VERK_21") == "HOOG_VERK_21"

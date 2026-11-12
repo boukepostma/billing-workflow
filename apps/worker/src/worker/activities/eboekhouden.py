@@ -102,6 +102,13 @@ async def _resolve_ledger_id(cfg: BillingConfig) -> int:
     raise RuntimeError("no revenue (VW) ledger found; set eboekhouden.invoice.ledger_code")
 
 
+LEGACY_VAT_CODES = {"HOOG": "HOOG_VERK_21", "LAAG": "LAAG_VERK_9", "AFW": "AFW_VERK", "GEEN": "GEEN"}
+
+
+def _normalize_vat_code(code: str) -> str:
+    return LEGACY_VAT_CODES.get(code.upper(), code)
+
+
 def _invoice_body(params: CreateInvoiceParams, cfg: BillingConfig, ids: dict) -> dict:
     inv = cfg.eboekhouden.invoice
     item: dict = {
@@ -109,7 +116,7 @@ def _invoice_body(params: CreateInvoiceParams, cfg: BillingConfig, ids: dict) ->
         "quantity": sum(r.aantal for r in params.regels) if params.regels else 0,
         "code": inv.product_code,
         "pricePerUnit": inv.hourly_rate,
-        "vatCode": inv.vat_code,
+        "vatCode": _normalize_vat_code(inv.vat_code),
         "ledgerId": ids["ledger_id"],
     }
     if ids.get("unit_id") is not None:
